@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIMULOBJ</title>
+  <link rel="stylesheet" href="template/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+
+</head>
+
+<body>
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <span class="app-title">SIMULOBJ</span>
+      <span class="project-title">Process-First MVP</span>
+    </div>
+    <div class="top-bar-right">
+      <button>Prj info</button>
+      <button>Save</button>
+      <button>Share</button>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div class="tab-panel">
+      <div class="tab active" data-tab="process-panel">Process Flow</div>
+      <div class="tab" data-tab="mask-panel">Mask Editor</div>
+      <div class="tab" data-tab="materials-panel">Materials</div>
+      <div class="tab" data-tab="simulation-panel">Simulation</div>
+    </div>
+
+    <!-- ================================================ 1. Process Flow Tab ================================================ -->
+    <div id="process-panel" class="work-panel active">
+      <!-- 좌: 캔버스 -->
+      <div class="viewer-area" id="viewer-container-process"></div>
+      <!-- 우: 프로세스 플로우 패널 -->
+      <div class="input-panel" id="process-control-panel">
+        <div class="pf-header">
+          <div>
+            <div class="pf-title">Process Flow</div>
+          </div>
+          <div>
+            <button class="pf-btn" id="pf-setting"><i class="fa-solid fa-gear"></i> Setting</button>
+            <button class="pf-btn" id="pf-add-btn" title="현재 select bar 위치에 새 공정 추가">＋ Process</button>
+          </div>
+        </div>
+
+        <div class="process-card-list" id="process-card-list">
+          <!-- JS가 gap-row / card-row를 동적으로 전부 구성 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================ 2. Mask Editor Tab ================================================ -->
+    <div id="mask-panel" class="work-panel">
+
+
+      <!-- 좌: 캔버스 -->
+      <div class="viewer-area" id="viewer-container-mask"></div>
+      <!-- 우: 프로세스 플로우 패널 -->
+      <div class="input-panel" id="mask-control-panel">
+        <div class="pf-header">
+          <div class="pf-title">Mask Editor</div>
+        </div>
+
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================================================ 3. materials Tab ================================================ -->
+    <div id="materials-panel" class="work-panel">
+      <p style="padding: 20px; color: var(--text-secondary)">Materials panel
+        준비 중…</p>
+    </div>
+
+    <!-- ================================================ 4. simulation Tab ================================================ -->
+    <div id="simulation-panel" class="work-panel">
+      <p style="padding: 20px; color: var(--text-secondary)">Simulation panel
+        준비 중… (공정 ↔ ColumnGrid 연동 후 구현)</p>
+    </div>
+
+  </div>
+
+  <!-- 탭 전환 최소 스크립트 -->
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const panels = document.querySelectorAll('.work-panel');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+        window.SIMULOBJET.processRuntime.renderer3D._onResize()
+      });
+    });
+    window.SIMULOBJET = window.SIMULOBJET || {};
+  </script>
+
+  <script src="template/script_processflow.js"></script>
+  <script src="template/script_columngrid.js"></script>
+  <script src="template/script_runtime.js"></script>
+  <script src="template/script_inspector.js"></script>
+  <script src="template/script_maskeditor.js"></script>
+
+</body>
+
+</html>
