@@ -126,7 +126,7 @@ class ProcessFlow {
   }
   _wireGlobalKeys() {
     document.addEventListener('keydown', (e) => {
-      const inStructure = document.getElementById('process-control-panel').classList.contains('active');
+      const inStructure = document.getElementById('process-panel').classList.contains('active');
       if (!inStructure) return;
       const ctrl = e.ctrlKey || e.metaKey;
 
