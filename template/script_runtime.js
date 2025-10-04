@@ -133,12 +133,12 @@ class GridRenderer {
 
 // ===== 프로세스 실행기 =====
 class ProcessRuntime {
-    constructor() {
+    constructor(domain) {
         // 렌더러 준비
         this.renderer3D = new GridRenderer('viewer-container-process');
 
         // 기본 도메인(간단 버전): 필요시 ColumnGrid UI와 연결 예정
-        this.domain = { LX: 100, LY: 100, dx: 1, dy: 1 };
+        this.domain = domain || { LX: 200, LY: 200, dx: 2, dy: 2 };
 
         // 이벤트 수신
         window.addEventListener('simflow:changed', (ev) => {
