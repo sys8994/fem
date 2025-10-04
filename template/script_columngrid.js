@@ -23,8 +23,8 @@
 
     /* ===================== ColumnGrid ===================== */
     class ColumnGrid {
-        constructor(LXnm, LYNm, dx, dy) {
-            this.setDomain(LXnm, LYNm, dx, dy);
+        constructor(LXnm, LYnm, dx, dy) {
+            this.setDomain(LXnm, LYnm, dx, dy);
             this.cols = new Array(this.NX);
             for (let i = 0; i < this.NX; i++) {
                 this.cols[i] = new Array(this.NY);
