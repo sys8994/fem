@@ -61,37 +61,102 @@
     <!-- ================================================ 2. Mask Editor Tab ================================================ -->
     <div id="mask-panel" class="work-panel">
 
-
       <!-- 좌: 캔버스 -->
-      <div class="viewer-area" id="viewer-container-mask"></div>
-      <!-- 우: 프로세스 플로우 패널 -->
+      <div class="viewer-area" id="viewer-container-mask">
+        <canvas id="canvas-mask" style="width: 100%; height: 100%;"></canvas>
+        <div id="text-coordi-xy"></div>
+      </div>
+
+      <!-- 우: Mask Editor panel -->
       <div class="input-panel" id="mask-control-panel">
         <div class="pf-header">
           <div class="pf-title">Mask Editor</div>
         </div>
 
+        <div class="toolbar">
+          <div class="txt3">Add Shapes</div>
+          <div class="row">
+            <button id="btnAddRect"><i class="fa-regular fa-square"></i>Add Rect</button>
+            <button id="btnAddCircle"><i class="fa-regular fa-circle"></i>Add Circle</button>
+          </div>
 
+          <div class="row">
+            <label>Step</label>
+            <input id="inpStep" type="number" min="1" value="10" />
+          </div>
+
+          <div class="txt3">Edit Shapes</div>
+          <div class="row">
+            <label>Left</label><input id="inpLeft" type="number" step="1" />
+            <label style="margin-left: 15px;">Top</label><input id="inpTop" type="number" step="1" />
+          </div>
+          <div class="row">
+            <label>Width</label><input id="inpWidth" type="number" step="1" min="1" />
+            <label style="margin-left: 15px;">Height</label><input id="inpHeight" type="number" step="1" min="1" />
+          </div>
+
+          <button id="btnTogglePolarity"><i class="fa-solid fa-toggle-on"></i>Toggle Polarity</button>
+
+          <div id="alignBox">
+            <!-- Order -->
+            <button id="btnToFront" title="Bring to Front"><i class="fa-solid fa-layer-group"></i> Bring to Front</button>
+            <button id="btnForward" title="Bring Forward"><i class="fa-solid fa-arrow-up-short-wide"></i> Bring Forward</button>
+            <button id="btnBackward" title="Send Backward"><i class="fa-solid fa-arrow-down-wide-short"></i> Send Backward</button>
+            <button id="btnToBack" title="Send to Back"><i class="fa-solid fa-layer-group fa-rotate-180"></i> Send to Back</button>
+
+            <div class="divider"></div>
+
+            <!-- Horizontal Align -->
+            <button id="btnAlignLeft" title="Align Left"><i class="fa-solid fa-align-left"></i> Align Left</button>
+            <button id="btnAlignHCenter" title="Align Center"><i class="fa-solid fa-align-center"></i> Align Center</button>
+            <button id="btnAlignRight" title="Align Right"><i class="fa-solid fa-align-right"></i> Align Right</button>
+
+            <div class="divider"></div>
+
+            <!-- Vertical Align -->
+            <button id="btnAlignTop" title="Align Top"><i class="fa-solid fa-up-long"></i> Align Top</button>
+            <button id="btnAlignVCenter" title="Align Middle"><i class="fa-solid fa-arrows-up-down"></i> Align Middle</button>
+            <button id="btnAlignBottom" title="Align Bottom"> <i class="fa-solid fa-down-long"></i> Align Bottom</button>
+
+            <div class="divider"></div>
+
+            <!-- Distribute -->
+            <button id="btnDistH" title="Distribute Horizontally"><i class="fa-solid fa-arrows-left-right"></i> Distribute H</button>
+            <button id="btnDistV" title="Distribute Vertically"><i class="fa-solid fa-arrows-up-down"></i> Distribute V</button>
+          </div>
         </div>
+
+        <div class="hint" id="selInfo">선택된 도형이 없습니다.</div>
+
+
+
+
+
+
+
+
       </div>
-
     </div>
 
-    <!-- ================================================ 3. materials Tab ================================================ -->
-    <div id="materials-panel" class="work-panel">
-      <p style="padding: 20px; color: var(--text-secondary)">Materials panel
-        준비 중…</p>
-    </div>
+  </div>
 
-    <!-- ================================================ 4. simulation Tab ================================================ -->
-    <div id="simulation-panel" class="work-panel">
-      <p style="padding: 20px; color: var(--text-secondary)">Simulation panel
-        준비 중… (공정 ↔ ColumnGrid 연동 후 구현)</p>
-    </div>
+  <!-- ================================================ 3. materials Tab ================================================ -->
+  <div id="materials-panel" class="work-panel">
+    <p style="padding: 20px; color: var(--text-secondary)">Materials panel
+      준비 중…</p>
+  </div>
+
+  <!-- ================================================ 4. simulation Tab ================================================ -->
+  <div id="simulation-panel" class="work-panel">
+    <p style="padding: 20px; color: var(--text-secondary)">Simulation panel
+      준비 중… (공정 ↔ ColumnGrid 연동 후 구현)</p>
+  </div>
 
   </div>
 
   <!-- 탭 전환 최소 스크립트 -->
   <script>
+    window.SIMULOBJET = window.SIMULOBJET || {};
     const tabs = document.querySelectorAll('.tab');
     const panels = document.querySelectorAll('.work-panel');
     tabs.forEach(tab => {
@@ -100,10 +165,12 @@
         panels.forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById(tab.dataset.tab).classList.add('active');
-        window.SIMULOBJET.processRuntime.renderer3D._onResize()
+        window.SIMULOBJET.activePanel = tab.dataset.tab;
+
+        if (tab.dataset.tab == 'mask-panel') { window.SIMULOBJET.maskeditor.initializeCanvas() }
+        if (tab.dataset.tab == 'process-panel') { window.SIMULOBJET.processRuntime.renderer3D._onResize() }
       });
     });
-    window.SIMULOBJET = window.SIMULOBJET || {};
   </script>
 
   <script src="template/script_processflow.js"></script>
