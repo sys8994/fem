@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIMULOBJ</title>
+  <title>SIMULOB</title>
   <link rel="stylesheet" href="template/style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
@@ -22,119 +22,184 @@
       <span class="project-title">Process-First MVP</span>
     </div>
     <div class="top-bar-right">
-      <button>Prj info</button>
-      <button>Save</button>
-      <button>Share</button>
+      <button class="top-bar-button"><i class="fa-solid fa-circle-info"></i></button>
+      <button class="top-bar-button"><i class="fa-solid fa-floppy-disk"></i></button>
+      <button class="top-bar-button"><i class="fa-solid fa-share-nodes"></i></button>
     </div>
   </div>
 
   <div class="main-content">
     <div class="tab-panel">
-      <div class="tab active" data-tab="process-panel">Process Flow</div>
-      <div class="tab" data-tab="mask-panel">Mask Editor</div>
+      <div class="tab active" data-tab="processflow-panel">Process Flow</div>
+      <div class="tab" data-tab="maskeditor-panel">Mask Editor</div>
       <div class="tab" data-tab="materials-panel">Materials</div>
       <div class="tab" data-tab="simulation-panel">Simulation</div>
     </div>
 
     <!-- ================================================ 1. Process Flow Tab ================================================ -->
-    <div id="process-panel" class="work-panel active">
+    <div id="processflow-panel" class="work-panel active">
       <!-- 좌: 캔버스 -->
       <div class="viewer-area" id="viewer-container-process"></div>
       <!-- 우: 프로세스 플로우 패널 -->
-      <div class="input-panel" id="process-control-panel">
-        <div class="pf-header">
+      <div class="input-panel" id="processflow-control-panel">
+        <div class="rightpanel-header">
           <div>
-            <div class="pf-title">Process Flow</div>
+            <div class="rightpanel-title">Process Flow</div>
           </div>
           <div>
-            <button class="pf-btn" id="pf-setting"><i class="fa-solid fa-gear"></i> Setting</button>
-            <button class="pf-btn" id="pf-add-btn" title="현재 select bar 위치에 새 공정 추가">＋ Process</button>
+            <button class="rightpanel-btn1" id="processflow-add-btn" title="현재 select bar 위치에 새 공정 추가"><i class="fa-solid fa-plus"></i> Process</button>
+            <button class="rightpanel-btn1" id="processflow-setting"><i class="fa-solid fa-gear"></i> Setting</button>
           </div>
         </div>
 
-        <div class="process-card-list" id="process-card-list">
+        <div class="processflow-card-list" id="processflow-card-list">
           <!-- JS가 gap-row / card-row를 동적으로 전부 구성 -->
         </div>
       </div>
     </div>
 
     <!-- ================================================ 2. Mask Editor Tab ================================================ -->
-    <div id="mask-panel" class="work-panel">
+    <div id="maskeditor-panel" class="work-panel">
 
-      <!-- 좌: 캔버스 -->
-      <div class="viewer-area" id="viewer-container-mask">
-        <canvas id="canvas-mask" style="width: 100%; height: 100%;"></canvas>
-        <div id="text-coordi-xy"></div>
+      <!-- Mask Manager ==================================== -->
+      <div id="maskeditor-main-maskmanager" class="work-subpanel active">
+        <!-- 좌: Mask list -->
+          <div class="masklist-viewer-area" >
+            <div>
+              <div class="row2">
+                <div class="rightpanel-title" style="margin: 10px; padding: 10px;">Mask Manager :</div>
+                <button class="rightpanel-btn3" id="btnCreateNewMask"><i class="fa-solid fa-plus"></i>Create Mask</button>
+                <button class="rightpanel-btn3 unclickable" id="btnEditMask"><i class="fa-solid fa-pen-to-square"></i>Edit Mask</button>
+                <button class="rightpanel-btn3 unclickable" id="btnCopyMask"><i class="fa-solid fa-copy"></i>Copy Mask</button>
+                <button class="rightpanel-btn3 unclickable" id="btnDeleteMask"><i class="fa-solid fa-trash"></i>Delete Mask</button>
+              </div>
+            </div>
+            <div id="maskListContainer"></div>
+
+          </div>
+
       </div>
 
-      <!-- 우: Mask Editor panel -->
-      <div class="input-panel" id="mask-control-panel">
-        <div class="pf-header">
-          <div class="pf-title">Mask Editor</div>
+
+      <!-- Mask Editor ==================================== -->
+      <div id="maskeditor-main-maskeditor" class="work-subpanel">
+
+        <!-- 좌: 캔버스 -->
+        <div class="viewer-area" id="viewer-container-mask">
+          <canvas id="canvas-mask" style="width: 100%; height: 100%;"></canvas>
+          <div id="text-coordi-xy"></div>
         </div>
 
-        <div class="toolbar">
-          <div class="txt3">Add Shapes</div>
-          <div class="row">
-            <button id="btnAddRect"><i class="fa-regular fa-square"></i>Add Rect</button>
-            <button id="btnAddCircle"><i class="fa-regular fa-circle"></i>Add Circle</button>
+        <!-- 우: Mask Editor panel -->
+        <div class="input-panel" id="maskeditor-control-panel">
+          <div class="rightpanel-header">
+            <div>
+              <div class="rightpanel-title">Mask Editor</div>
+            </div>
+            <div>
+              <button class="rightpanel-btn1" id="maskeditor-list"><i class="fa-solid fa-list"></i> Mask List</button>
+              <button class="rightpanel-btn1" id="maskeditor-save"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+              <button class="rightpanel-btn1" id="maskeditor-setting"><i class="fa-solid fa-gear"></i> Setting</button>
+            </div>
           </div>
 
-          <div class="row">
-            <label>Step</label>
-            <input id="inpStep" type="number" min="1" value="10" />
-          </div>
+          <input id="inpStep" type="number" min="1" value="10" style="display:none;" />
 
-          <div class="txt3">Edit Shapes</div>
-          <div class="row">
-            <label>Left</label><input id="inpLeft" type="number" step="1" />
-            <label style="margin-left: 15px;">Top</label><input id="inpTop" type="number" step="1" />
-          </div>
-          <div class="row">
-            <label>Width</label><input id="inpWidth" type="number" step="1" min="1" />
-            <label style="margin-left: 15px;">Height</label><input id="inpHeight" type="number" step="1" min="1" />
-          </div>
 
-          <button id="btnTogglePolarity"><i class="fa-solid fa-toggle-on"></i>Toggle Polarity</button>
-
-          <div id="alignBox">
-            <!-- Order -->
-            <button id="btnToFront" title="Bring to Front"><i class="fa-solid fa-layer-group"></i> Bring to Front</button>
-            <button id="btnForward" title="Bring Forward"><i class="fa-solid fa-arrow-up-short-wide"></i> Bring Forward</button>
-            <button id="btnBackward" title="Send Backward"><i class="fa-solid fa-arrow-down-wide-short"></i> Send Backward</button>
-            <button id="btnToBack" title="Send to Back"><i class="fa-solid fa-layer-group fa-rotate-180"></i> Send to Back</button>
+          <div class="toolbar" id="maskeditor-addShapes">
+            
+            <div class="row">
+              <div class="maskeditor-midtext">Mask Name : </div><input id="inpMaskName" type="text" placeholder="Enter Mask Name" style="margin: 5px 5px 5px 0px !important;"/><div id="maskeditor-star-edited" style="margin:0px 10px 10px 0px; visibility:hidden;">*</div>
+            </div>
 
             <div class="divider"></div>
+            
+            <div class="maskeditor-midtext">Add Shape</div>
+            <div class="row">
+              <button class="rightpanel-btn2" id="btnAddRect"><i class="fa-regular fa-square"></i>Rectangle</button>
+              <button class="rightpanel-btn2" id="btnAddCircle"><i class="fa-regular fa-circle"></i>Circle</button>
+              <button class="rightpanel-btn2" id="btnAddFreeform"><i class="fa-solid fa-draw-polygon"></i>Polygon</button>
+            </div>
+          </div>
+
+          <div style="height:10px;"></div> <!-- Padding==================================================== -->
+
+          <div class="toolbar" id="maskeditor-editShapeBox" style="display:none;">
+            <div class="maskeditor-midtext">Edit Shape</div>
+            
+            <!-- Dimension -->
+            <div class="row">
+              <label class="rightpanel-label">Left (nm)</label><input id="inpLeft" type="number" step="1" />
+              <label class="rightpanel-label" style="margin-left: 15px;">Top (nm)</label><input id="inpTop" type="number" step="1" />
+            </div>
+            <div class="row">
+              <label class="rightpanel-label">Width (nm)</label><input id="inpWidth" type="number" step="1" min="1" />
+              <label class="rightpanel-label" style="margin-left: 15px;">Height (nm)</label><input id="inpHeight" type="number" step="1" min="1" />
+            </div>
+
+            <div class="divider"></div>
+            
+            <!-- Polarity -->
+            <div class='row'><button class="rightpanel-btn2" id="btnTogglePolarity" style="flex:1 !important; min-width:0;"><i class="fa-solid fa-circle-half-stroke"></i>Toggle Polarity</button></div>
+            
+            <div class="divider"></div>
+
+            <!-- Order -->
+            <div class='row'>
+              <button class="rightpanel-btn2" id="btnForward" title="Bring Forward"><i class="fa-solid fa-arrow-up-short-wide"></i>Bring Forward</button>
+              <button class="rightpanel-btn2" id="btnToFront" title="Bring to Front"><i class="fa-solid fa-layer-group"></i>Bring to Front</button>
+            </div>
+            <div class='row'>
+              <button class="rightpanel-btn2" id="btnBackward" title="Send Backward"><i class="fa-solid fa-arrow-down-wide-short"></i>Send Backward</button>
+              <button class="rightpanel-btn2" id="btnToBack" title="Send to Back"><i class="fa-solid fa-layer-group fa-rotate-180"></i>Send to Back</button>
+            </div>
+
+          </div>
+
+          <div style="height:10px;"></div> <!-- Padding==================================================== -->
+
+          <div class="toolbar" id="maskeditor-alignBox" style="display:none;">
+            <div class="maskeditor-midtext">Edit Alignment</div>
+
 
             <!-- Horizontal Align -->
-            <button id="btnAlignLeft" title="Align Left"><i class="fa-solid fa-align-left"></i> Align Left</button>
-            <button id="btnAlignHCenter" title="Align Center"><i class="fa-solid fa-align-center"></i> Align Center</button>
-            <button id="btnAlignRight" title="Align Right"><i class="fa-solid fa-align-right"></i> Align Right</button>
+            <div class='row'>
+              <button class="rightpanel-btn2" id="btnAlignLeft" title="Align Left"><i class="fa-solid fa-align-left"></i> Align Left</button>
+              <button class="rightpanel-btn2" id="btnAlignHCenter" title="Align Center"><i class="fa-solid fa-align-center"></i> Align Center</button>
+              <button class="rightpanel-btn2" id="btnAlignRight" title="Align Right"><i class="fa-solid fa-align-right"></i> Align Right</button>
+            </div>
 
             <div class="divider"></div>
 
             <!-- Vertical Align -->
-            <button id="btnAlignTop" title="Align Top"><i class="fa-solid fa-up-long"></i> Align Top</button>
-            <button id="btnAlignVCenter" title="Align Middle"><i class="fa-solid fa-arrows-up-down"></i> Align Middle</button>
-            <button id="btnAlignBottom" title="Align Bottom"> <i class="fa-solid fa-down-long"></i> Align Bottom</button>
+            <div class='row'>
+              <button class="rightpanel-btn2" id="btnAlignTop" title="Align Top"><i class="fa-solid fa-up-long"></i> Align Top</button>
+              <button class="rightpanel-btn2" id="btnAlignVCenter" title="Align Middle"><i class="fa-solid fa-arrows-up-down"></i> Align Middle</button>
+              <button class="rightpanel-btn2" id="btnAlignBottom" title="Align Bottom"> <i class="fa-solid fa-down-long"></i> Align Bottom</button>
+            </div>
 
             <div class="divider"></div>
 
             <!-- Distribute -->
-            <button id="btnDistH" title="Distribute Horizontally"><i class="fa-solid fa-arrows-left-right"></i> Distribute H</button>
-            <button id="btnDistV" title="Distribute Vertically"><i class="fa-solid fa-arrows-up-down"></i> Distribute V</button>
+            <div class='row'>
+              <button class="rightpanel-btn2" id="btnDistH" title="Distribute Horizontally"><i class="fa-solid fa-arrows-left-right"></i> Distribute Horizontally</button>
+              <button class="rightpanel-btn2" id="btnDistV" title="Distribute Vertically"><i class="fa-solid fa-arrows-up-down"></i> Distribute Vertically</button>
+            </div>
           </div>
+          
+          <div id="test"></div>
+
+          
+
+
+
+
+
+
+
+
         </div>
-
-        <div class="hint" id="selInfo">선택된 도형이 없습니다.</div>
-
-
-
-
-
-
-
-
+        
       </div>
     </div>
 
@@ -159,6 +224,7 @@
     window.SIMULOBJET = window.SIMULOBJET || {};
     const tabs = document.querySelectorAll('.tab');
     const panels = document.querySelectorAll('.work-panel');
+    window.SIMULOBJET.activePanel = 'processflow-panel';
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         tabs.forEach(t => t.classList.remove('active'));
@@ -167,8 +233,10 @@
         document.getElementById(tab.dataset.tab).classList.add('active');
         window.SIMULOBJET.activePanel = tab.dataset.tab;
 
-        if (tab.dataset.tab == 'mask-panel') { window.SIMULOBJET.maskeditor.initializeCanvas() }
-        if (tab.dataset.tab == 'process-panel') { window.SIMULOBJET.processRuntime.renderer3D._onResize() }
+        if (tab.dataset.tab == 'processflow-panel') { 
+          window.SIMULOBJET.processFlow.render();
+          window.SIMULOBJET.processRuntime.renderer3D._onResize();
+        }
       });
     });
   </script>
@@ -178,6 +246,7 @@
   <script src="template/script_runtime.js"></script>
   <script src="template/script_inspector.js"></script>
   <script src="template/script_maskeditor.js"></script>
+  <script src="template/script_util.js"></script>
 
 </body>
 
