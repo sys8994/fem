@@ -1,253 +1,212 @@
-<!DOCTYPE html>
-<html lang="ko">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIMULOB</title>
-  <link rel="stylesheet" href="template/style.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-
-  <!-- Three.js & OrbitControls -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
-
-</head>
-
-<body>
-  <div class="top-bar">
-    <div class="top-bar-left">
-      <span class="app-title">SIMULOBJ</span>
-      <span class="project-title">Process-First MVP</span>
-    </div>
-    <div class="top-bar-right">
-      <button class="top-bar-button"><i class="fa-solid fa-circle-info"></i></button>
-      <button class="top-bar-button"><i class="fa-solid fa-floppy-disk"></i></button>
-      <button class="top-bar-button"><i class="fa-solid fa-share-nodes"></i></button>
-    </div>
-  </div>
-
-  <div class="main-content">
-    <div class="tab-panel">
-      <div class="tab active" data-tab="processflow-panel">Process Flow</div>
-      <div class="tab" data-tab="maskeditor-panel">Mask Editor</div>
-      <div class="tab" data-tab="materials-panel">Materials</div>
-      <div class="tab" data-tab="simulation-panel">Simulation</div>
-    </div>
-
-    <!-- ================================================ 1. Process Flow Tab ================================================ -->
-    <div id="processflow-panel" class="work-panel active">
-      <!-- 좌: 캔버스 -->
-      <div class="viewer-area" id="viewer-container-process"></div>
-      <!-- 우: 프로세스 플로우 패널 -->
-      <div class="input-panel" id="processflow-control-panel">
-        <div class="rightpanel-header">
-          <div>
-            <div class="rightpanel-title">Process Flow</div>
-          </div>
-          <div>
-            <button class="rightpanel-btn1" id="processflow-add-btn" title="현재 select bar 위치에 새 공정 추가"><i class="fa-solid fa-plus"></i> Process</button>
-            <button class="rightpanel-btn1" id="processflow-setting"><i class="fa-solid fa-gear"></i> Setting</button>
-          </div>
-        </div>
-
-        <div class="processflow-card-list" id="processflow-card-list">
-          <!-- JS가 gap-row / card-row를 동적으로 전부 구성 -->
-        </div>
-      </div>
-    </div>
-
-    <!-- ================================================ 2. Mask Editor Tab ================================================ -->
-    <div id="maskeditor-panel" class="work-panel">
-
-      <!-- Mask Manager ==================================== -->
-      <div id="maskeditor-main-maskmanager" class="work-subpanel active">
-        <!-- 좌: Mask list -->
-          <div class="masklist-viewer-area" >
-            <div>
-              <div class="row2">
-                <div class="rightpanel-title" style="margin: 10px; padding: 10px;">Mask Manager :</div>
-                <button class="rightpanel-btn3" id="btnCreateNewMask"><i class="fa-solid fa-plus"></i>Create Mask</button>
-                <button class="rightpanel-btn3 unclickable" id="btnEditMask"><i class="fa-solid fa-pen-to-square"></i>Edit Mask</button>
-                <button class="rightpanel-btn3 unclickable" id="btnCopyMask"><i class="fa-solid fa-copy"></i>Copy Mask</button>
-                <button class="rightpanel-btn3 unclickable" id="btnDeleteMask"><i class="fa-solid fa-trash"></i>Delete Mask</button>
-              </div>
-            </div>
-            <div id="maskListContainer"></div>
-
-          </div>
-
-      </div>
-
-
-      <!-- Mask Editor ==================================== -->
-      <div id="maskeditor-main-maskeditor" class="work-subpanel">
-
-        <!-- 좌: 캔버스 -->
-        <div class="viewer-area" id="viewer-container-mask">
-          <canvas id="canvas-mask" style="width: 100%; height: 100%;"></canvas>
-          <div id="text-coordi-xy"></div>
-        </div>
-
-        <!-- 우: Mask Editor panel -->
-        <div class="input-panel" id="maskeditor-control-panel">
-          <div class="rightpanel-header">
-            <div>
-              <div class="rightpanel-title">Mask Editor</div>
-            </div>
-            <div>
-              <button class="rightpanel-btn1" id="maskeditor-list"><i class="fa-solid fa-list"></i> Mask List</button>
-              <button class="rightpanel-btn1" id="maskeditor-save"><i class="fa-solid fa-floppy-disk"></i> Save</button>
-              <button class="rightpanel-btn1" id="maskeditor-setting"><i class="fa-solid fa-gear"></i> Setting</button>
-            </div>
-          </div>
-
-          <input id="inpStep" type="number" min="1" value="10" style="display:none;" />
-
-
-          <div class="toolbar" id="maskeditor-addShapes">
-            
-            <div class="row">
-              <div class="maskeditor-midtext">Mask Name : </div><input id="inpMaskName" type="text" placeholder="Enter Mask Name" style="margin: 5px 5px 5px 0px !important;"/><div id="maskeditor-star-edited" style="margin:0px 10px 10px 0px; visibility:hidden;">*</div>
-            </div>
-
-            <div class="divider"></div>
-            
-            <div class="maskeditor-midtext">Add Shape</div>
-            <div class="row">
-              <button class="rightpanel-btn2" id="btnAddRect"><i class="fa-regular fa-square"></i>Rectangle</button>
-              <button class="rightpanel-btn2" id="btnAddCircle"><i class="fa-regular fa-circle"></i>Circle</button>
-              <button class="rightpanel-btn2" id="btnAddFreeform"><i class="fa-solid fa-draw-polygon"></i>Polygon</button>
-            </div>
-          </div>
-
-          <div style="height:10px;"></div> <!-- Padding==================================================== -->
-
-          <div class="toolbar" id="maskeditor-editShapeBox" style="display:none;">
-            <div class="maskeditor-midtext">Edit Shape</div>
-            
-            <!-- Dimension -->
-            <div class="row">
-              <label class="rightpanel-label">Left (nm)</label><input id="inpLeft" type="number" step="1" />
-              <label class="rightpanel-label" style="margin-left: 15px;">Top (nm)</label><input id="inpTop" type="number" step="1" />
-            </div>
-            <div class="row">
-              <label class="rightpanel-label">Width (nm)</label><input id="inpWidth" type="number" step="1" min="1" />
-              <label class="rightpanel-label" style="margin-left: 15px;">Height (nm)</label><input id="inpHeight" type="number" step="1" min="1" />
-            </div>
-
-            <div class="divider"></div>
-            
-            <!-- Polarity -->
-            <div class='row'><button class="rightpanel-btn2" id="btnTogglePolarity" style="flex:1 !important; min-width:0;"><i class="fa-solid fa-circle-half-stroke"></i>Toggle Polarity</button></div>
-            
-            <div class="divider"></div>
-
-            <!-- Order -->
-            <div class='row'>
-              <button class="rightpanel-btn2" id="btnForward" title="Bring Forward"><i class="fa-solid fa-arrow-up-short-wide"></i>Bring Forward</button>
-              <button class="rightpanel-btn2" id="btnToFront" title="Bring to Front"><i class="fa-solid fa-layer-group"></i>Bring to Front</button>
-            </div>
-            <div class='row'>
-              <button class="rightpanel-btn2" id="btnBackward" title="Send Backward"><i class="fa-solid fa-arrow-down-wide-short"></i>Send Backward</button>
-              <button class="rightpanel-btn2" id="btnToBack" title="Send to Back"><i class="fa-solid fa-layer-group fa-rotate-180"></i>Send to Back</button>
-            </div>
-
-          </div>
-
-          <div style="height:10px;"></div> <!-- Padding==================================================== -->
-
-          <div class="toolbar" id="maskeditor-alignBox" style="display:none;">
-            <div class="maskeditor-midtext">Edit Alignment</div>
-
-
-            <!-- Horizontal Align -->
-            <div class='row'>
-              <button class="rightpanel-btn2" id="btnAlignLeft" title="Align Left"><i class="fa-solid fa-align-left"></i> Align Left</button>
-              <button class="rightpanel-btn2" id="btnAlignHCenter" title="Align Center"><i class="fa-solid fa-align-center"></i> Align Center</button>
-              <button class="rightpanel-btn2" id="btnAlignRight" title="Align Right"><i class="fa-solid fa-align-right"></i> Align Right</button>
-            </div>
-
-            <div class="divider"></div>
-
-            <!-- Vertical Align -->
-            <div class='row'>
-              <button class="rightpanel-btn2" id="btnAlignTop" title="Align Top"><i class="fa-solid fa-up-long"></i> Align Top</button>
-              <button class="rightpanel-btn2" id="btnAlignVCenter" title="Align Middle"><i class="fa-solid fa-arrows-up-down"></i> Align Middle</button>
-              <button class="rightpanel-btn2" id="btnAlignBottom" title="Align Bottom"> <i class="fa-solid fa-down-long"></i> Align Bottom</button>
-            </div>
-
-            <div class="divider"></div>
-
-            <!-- Distribute -->
-            <div class='row'>
-              <button class="rightpanel-btn2" id="btnDistH" title="Distribute Horizontally"><i class="fa-solid fa-arrows-left-right"></i> Distribute Horizontally</button>
-              <button class="rightpanel-btn2" id="btnDistV" title="Distribute Vertically"><i class="fa-solid fa-arrows-up-down"></i> Distribute Vertically</button>
-            </div>
-          </div>
-          
-          <div id="test"></div>
-
-          
-
-
-
-
-
-
-
-
-        </div>
-        
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ================================================ 3. materials Tab ================================================ -->
-  <div id="materials-panel" class="work-panel">
-    <p style="padding: 20px; color: var(--text-secondary)">Materials panel
-      준비 중…</p>
-  </div>
-
-  <!-- ================================================ 4. simulation Tab ================================================ -->
-  <div id="simulation-panel" class="work-panel">
-    <p style="padding: 20px; color: var(--text-secondary)">Simulation panel
-      준비 중… (공정 ↔ ColumnGrid 연동 후 구현)</p>
-  </div>
-
-  </div>
-
-  <!-- 탭 전환 최소 스크립트 -->
-  <script>
+(function (window) {
+    'use strict';
     window.SIMULOBJET = window.SIMULOBJET || {};
-    const tabs = document.querySelectorAll('.tab');
-    const panels = document.querySelectorAll('.work-panel');
-    window.SIMULOBJET.activePanel = 'processflow-panel';
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        panels.forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.tab).classList.add('active');
-        window.SIMULOBJET.activePanel = tab.dataset.tab;
 
-        if (tab.dataset.tab == 'processflow-panel') { 
-          window.SIMULOBJET.processFlow.render();
-          window.SIMULOBJET.processRuntime.renderer3D._onResize();
+    /* ===================== Utilities ===================== */
+    const matColors = { 'A': 0x00bfb3, 'B': 0xd45555, 'C': 0xffcc00 };
+    const hex = c => '#' + c.toString(16).padStart(6, '0');
+    function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    function zero2D(nx, ny) { const a = new Array(nx); for (let i = 0; i < nx; i++) { a[i] = new Float32Array(ny); } return a; }
+    function buildGaussianKernel(radius, sigma) {
+        if (radius <= 0) return { ofs: [], wsum: 1 };
+        const ofs = []; let wsum = 0;
+        const s = sigma > 0 ? sigma : Math.max(0.5, radius / 2);
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const r = Math.hypot(dx, dy); if (r > radius + 1e-9) continue;
+                const w = Math.exp(-(r * r) / (2 * s * s)); ofs.push([dx, dy, w]); wsum += w;
+            }
         }
-      });
-    });
-  </script>
+        return { ofs, wsum: wsum > 0 ? wsum : 1 };
+    }
 
-  <script src="template/script_processflow.js"></script>
-  <script src="template/script_columngrid.js"></script>
-  <script src="template/script_runtime.js"></script>
-  <script src="template/script_inspector.js"></script>
-  <script src="template/script_maskeditor.js"></script>
-  <script src="template/script_util.js"></script>
+    /* ===================== ColumnGrid ===================== */
+    class ColumnGrid {
+        constructor(LXnm, LYnm, dx, dy) {
+            this.setDomain(LXnm, LYnm, dx, dy);
+            this.cols = new Array(this.NX);
+            for (let i = 0; i < this.NX; i++) {
+                this.cols[i] = new Array(this.NY);
+                for (let j = 0; j < this.NY; j++) {
+                    //   this.cols[i][j] = [ ['B',20], ['A',100] ]; // 초기 스택
+                    this.cols[i][j] = []; // 초기 스택
+                }
+            }
+        }
+        setDomain(LXnm, LYNm, dx, dy) {
+            this.dx = Number(dx); this.dy = Number(dy);
+            this.NX = Math.max(1, Math.round(Number(LXnm) / this.dx));
+            this.NY = Math.max(1, Math.round(Number(LYNm) / this.dy));
+            this.offsetX = - (this.NX - 1) * this.dx / 2;
+            this.offsetY = - (this.NY - 1) * this.dy / 2;
+            this.LXeff = this.NX * this.dx;
+            this.LYeff = this.NY * this.dy;
+        }
+        worldX(i) { return this.offsetX + i * this.dx; }
+        worldY(j) { return this.offsetY + j * this.dy; }
+        indexFromX(xnm) { return clamp(Math.round((xnm - this.offsetX) / this.dx), 0, this.NX - 1); }
+        indexFromY(ynm) { return clamp(Math.round((ynm - this.offsetY) / this.dy), 0, this.NY - 1); }
+        getColumn(i, j) { return this.cols[i][j]; }
 
-</body>
+        _applyEtchAt(i, j, mat, dz) {
+            if (dz <= 0) return;
+            const col = this.cols[i][j]; if (!col.length) return;
+            const top = col[col.length - 1]; if (top[0] !== mat) return;
+            const prevEnd = (col.length >= 2 ? col[col.length - 2][1] : 0);
+            const rem = top[1] - prevEnd;
+            const cut = Math.min(rem, dz);
+            top[1] -= cut;
+            if (top[1] <= prevEnd + 1e-9) col.pop();
+        }
+        _applyDepositAt(i, j, mat, dz) {
+            if (dz <= 0) return;
+            const col = this.cols[i][j];
+            const topZ = col.length ? col[col.length - 1][1] : 0;
+            if (col.length && col[col.length - 1][0] === mat) col[col.length - 1][1] = topZ + dz;
+            else col.push([mat, topZ + dz]);
+        }
 
-</html>
+        etch(maskFn, mat, depth, anisotropy = 1.0, opts = {}) {
+            const eta = clamp(Number(anisotropy) || 0, 0, 1);
+            const R = Number(opts.radius ?? 2) | 0;
+            const kern = buildGaussianKernel(R, opts.sigma ?? (R / 2));
+            const vert = zero2D(this.NX, this.NY);
+            const lat = zero2D(this.NX, this.NY);
+
+            for (let i = 0; i < this.NX; i++) {
+                for (let j = 0; j < this.NY; j++) {
+                    if (!maskFn((i+0.5)*this.dx, (j+0.5)*this.dy)) continue;
+                    const col = this.cols[i][j];
+                    if (col.length && col[col.length - 1][0] === mat) vert[i][j] += depth * eta;
+                    const L = depth * (1 - eta);
+                    if (L > 0 && kern.ofs.length) {
+                        for (const [dx, dy, w] of kern.ofs) {
+                            const x = i + dx, y = j + dy;
+                            if (x < 0 || x >= this.NX || y < 0 || y >= this.NY) continue;
+                            lat[x][y] += L * (w / kern.wsum);
+                        }
+                    }
+                }
+            }
+            for (let i = 0; i < this.NX; i++) for (let j = 0; j < this.NY; j++) {
+                const dz = vert[i][j] + lat[i][j];
+                if (dz > 0) this._applyEtchAt(i, j, mat, dz);
+            }
+        }
+        deposit(maskFn, mat, depth, anisotropy = 1.0, opts = {}) {
+            const eta = clamp(Number(anisotropy) || 0, 0, 1);
+            const R = Number(opts.radius ?? 2) | 0;
+            const kern = buildGaussianKernel(R, opts.sigma ?? (R / 2));
+            const vert = zero2D(this.NX, this.NY);
+            const lat = zero2D(this.NX, this.NY);
+
+            for (let i = 0; i < this.NX; i++) {
+                for (let j = 0; j < this.NY; j++) {
+                    if (!maskFn((i+0.5)*this.dx, (j+0.5)*this.dy)) continue;
+                    vert[i][j] += depth * eta;
+                    const L = depth * (1 - eta);
+                    if (L > 0 && kern.ofs.length) {
+                        for (const [dx, dy, w] of kern.ofs) {
+                            const x = i + dx, y = j + dy;
+                            if (x < 0 || x >= this.NX || y < 0 || y >= this.NY) continue;
+                            lat[x][y] += L * (w / kern.wsum);
+                        }
+                    }
+                }
+            }
+            for (let i = 0; i < this.NX; i++) for (let j = 0; j < this.NY; j++) {
+                const dz = vert[i][j] + lat[i][j];
+                if (dz > 0) this._applyDepositAt(i, j, mat, dz);
+            }
+        }
+
+        cmp(depth, stopmat='-'){
+            // 1) 전체 ztop 계산
+            let ztop = 0;
+            for(let i=0;i<this.NX;i++){
+              for(let j=0;j<this.NY;j++){
+                const col=this.cols[i][j];
+                if(col.length){
+                  ztop = Math.max(ztop, col[col.length-1][1]);
+                }
+              }
+            }
+            const targetZ = ztop - depth;
+          
+            // 2) 각 칼럼 평탄화
+            for(let i=0;i<this.NX;i++){
+              for(let j=0;j<this.NY;j++){
+                const col=this.cols[i][j];
+                if(!col.length) continue;
+          
+                // stopper 옵션이 있는 경우
+                let stopZ = -Infinity;
+                if(stopmat != '-'){
+                  for(const [m,zEnd] of col){
+                    if(m===stopmat){ stopZ = zEnd; break; }
+                  }
+                }
+                const limitZ = Math.max(targetZ, stopZ);
+          
+                // 3) 최상단에서 내려가며 잘라내기
+                while(col.length){
+                  const topIdx = col.length-1;
+                  const top = col[topIdx];
+                  const z0 = (topIdx>=1? col[topIdx-1][1] : 0);
+          
+                  if(top[1] <= limitZ+1e-9) break; // 이미 낮음 → 종료
+          
+                  // plane까지 잘라냄
+                  top[1] = Math.max(limitZ, z0);
+                  if(top[1] <= z0+1e-9) col.pop(); // 완전 제거됐으면 pop
+                  else break; // 한 레벨만 줄이면 끝
+                }
+              }
+            }
+          }
+
+        maxHeight() {
+            let m = 0;
+            for (let i = 0; i < this.NX; i++) for (let j = 0; j < this.NY; j++) {
+                const col = this.cols[i][j]; if (col.length) m = Math.max(m, col[col.length - 1][1]);
+            }
+            return m || 1;
+        }
+    }
+
+    /* ===================== Slice2D ===================== */
+    class Slice2D {
+        constructor(grid, canvas) {
+            this.grid = grid; this.canvas = canvas; this.ctx = canvas.getContext('2d');
+        }
+        clear() { this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); }
+
+        draw(axis, nmPos) {
+            const ctx = this.ctx, W = this.canvas.width, H = this.canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            const zMax = Math.max(220, this.grid.maxHeight() * 1.1);
+
+            if (axis === 'YZ') {
+                const i = this.grid.indexFromX(nmPos);
+                const scaleY = W / this.grid.LYeff;
+                for (let j = 0; j < this.grid.NY; j++) {
+                    const col = this.grid.getColumn(i, j); let prev = 0;
+                    for (const [m, zEnd] of col) {
+                        const h = zEnd - prev; if (h <= 0) { prev = zEnd; continue; }
+                        ctx.fillStyle = hex(matColors[m] || 0x000000);
+                        const x0 = (this.grid.worldY(j) + this.grid.LYeff / 2) * scaleY;
+                        const y0 = H - (zEnd / zMax) * H;
+                        const hh = (h / zMax) * H;
+                        ctx.fillRect(x0, y0, Math.max(1, this.grid.dy * scaleY), hh);
+                        prev = zEnd;
+                    }
+                }
+            }
+            // (XZ, XY plane도 필요시 확장)
+        }
+    }
+
+    window.SIMULOBJET.ColumnGrid = ColumnGrid;
+    window.SIMULOBJET.Slice2D = Slice2D;
+})(window);
