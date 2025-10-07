@@ -19,6 +19,8 @@ class Inspector {
 
     // ESC: 열려있는 드롭다운 먼저 닫고, 없으면 인스펙터 닫기
     document.addEventListener('keydown', (e) => {
+      if (window.SIMULOBJET.activePanel !== 'processflow-panel') return;
+      
       if (e.key === 'Escape') {
         if (this.openMenus.size) {
           this._closeAllMenus();
@@ -55,6 +57,8 @@ class Inspector {
     };
     window.addEventListener('scroll', this._onGlobalInvalidate, true);
     window.addEventListener('resize', this._onGlobalInvalidate, true);
+
+    
   }
 
 
@@ -74,11 +78,12 @@ class Inspector {
       this._ensurePanelImmediate(cardEl, proc);
     }
   }
+  
 
   // 렌더 후, 열려있던 카드만 패널 재부착
   rehydrateAll() {
     for (const id of this.expandedIds) {
-      const card = this.flow.listEl.querySelector(`.process-card[data-id="${id}"]`);
+      const card = this.flow.listEl.querySelector(`.processflow-card[data-id="${id}"]`);
       const proc = this.flow.processes.find(p => p.id === id);
       if (card && proc && !card.querySelector('.inspector-panel')) {
         this._ensurePanelImmediate(card, proc);
@@ -90,7 +95,7 @@ class Inspector {
   // 인스펙터 모두 닫기 (즉시)
   closeAllImmediate() {
     for (const id of Array.from(this.expandedIds)) {
-      const card = this.flow.listEl.querySelector(`.process-card[data-id="${id}"]`);
+      const card = this.flow.listEl.querySelector(`.processflow-card[data-id="${id}"]`);
       if (card) this._collapseImmediate(card, id, /*silent*/true);
     }
     this.expandedIds.clear();
@@ -142,10 +147,10 @@ class Inspector {
 
   _rowName(cardEl, proc) {
     return this._makeDropdownRow(
-      'Process Name',
-      proc.id,
-      proc.name || "",
-      (val) => {
+      {label:'Process Name',
+      items:proc.id,
+      current:proc.name || "",
+      onSelect:(val) => {
         proc.name = val;
         // 패널 내용만 재구성
         this._rebuildPanelInPlace(cardEl, proc);
@@ -156,18 +161,18 @@ class Inspector {
         // 레일 보정
         this._safe(this.flow._updateRailAndPastZone, this.flow);
       },
-          /*headerType*/ 'name'
-    );
+      headerType:'name',
+    });
   }
 
   _rowType(cardEl, proc) {
     let types = Object.keys(this.kindIcon || {});
     if (!types || !types.length) types = ["SUBSTR", "DEPO", "ETCH", "CMP"];
-    return this._makeDropdownRow(
-      "Type",
-      types,
-      proc.kind || "SUBSTR",
-      (val) => {
+    return this._makeDropdownRow({
+      label:"Type",
+      items:types,
+      current:proc.kind || "SUBSTR",
+      onSelect:(val) => {
         proc.kind = val;
         // 패널 내용만 재구성
         this._rebuildPanelInPlace(cardEl, proc);
@@ -178,17 +183,17 @@ class Inspector {
         // 레일 보정
         this._safe(this.flow._updateRailAndPastZone, this.flow);
       },
-          /*headerType*/ 'icon'
-    );
+      headerType:'icon',
+    });
   }
 
   _rowMaterial(proc) {
     const mats = Object.keys(this.palette || {});
-    return this._makeDropdownRow(
-      "Material",
-      mats,
-      proc.material || "",
-      (val) => {
+    return this._makeDropdownRow({
+      label:"Material",
+      items:mats,
+      current:proc.material || "",
+      onSelect:(val) => {
         if (val === "+Add") {
           const nm = prompt("새 물질 이름?");
           if (!nm) return;
@@ -201,18 +206,18 @@ class Inspector {
         this._updateAnyCardMeta(proc.id);
         this._emitRuntimeChanged();
       },
-          /*headerType*/ 'color',
-          /*showAdd*/ true
-    );
+          headerType:'color',
+          showAdd: true,
+    });
   }
 
   _rowStopper(proc) {
     const mats = Object.keys(this.palette || {});
-    return this._makeDropdownRow(
-      "Stopper",
-      ["-",...mats],
-      proc.material || "",
-      (val) => {
+    return this._makeDropdownRow({
+      label:"Stopper",
+      items:["-",...mats],
+      current:proc.material || "",
+      onSelect:(val) => {
         if (val === "+Add") {
           const nm = prompt("새 물질 이름?");
           if (!nm) return;
@@ -225,48 +230,54 @@ class Inspector {
         this._updateAnyCardMeta(proc.id);
         this._emitRuntimeChanged();
       },
-          /*headerType*/ 'color',
-          /*showAdd*/ true
-    );
+        headerType:'color',
+        showAdd:true,
+    });
   }
 
   _rowMask(proc) {
-    const masks = ["A", "B", "C"]; // TODO: 실제 마스크 목록 연동
-    return this._makeDropdownRow(
-      "Mask",
-      masks,
-      proc.mask || "",
-      (val) => {
-        proc.mask = val;
+    // const masks = ["A", "B", "C"]; // TODO: 실제 마스크 목록 연동
+    const masks = window.SIMULOBJET.maskmanager.maskList;
+    return this._makeDropdownRow({
+      label:"Mask",
+      items:masks,
+      current:proc.mask || "-",
+      onSelect:(val) => {
+        if (val === '-') {
+          proc.mask = '-'
+        } else {
+          proc.mask = val;
+        }        
         this._updateAnyCardMeta(proc.id);
         this._emitRuntimeChanged();
-      }
-    );
+      },
+      headerType:'mask',
+    });
   }
 
   _rowThickness(proc) {
-    return this._makeSliderRow(
-      "Thickness (nm)",
-      0, 100, Number(proc.thickness || 0),
-      (v) => {
+    return this._makeSliderRow({
+      label:"Thickness (nm)",
+      min:0, max:100, val:Number(proc.thickness || 0),
+      onChange:(v) => {
         proc.thickness = v;
         this._updateAnyCardMeta(proc.id);
         this._emitRuntimeChanged();
       },
-      1
-    );
+      step:1
+    });
   }
 
   _rowEta(proc) {
-    return this._makeSliderRow(
-      "Anisotropy η",
-      0, 1, (typeof proc.anisotropy === 'number' ? proc.anisotropy : 1),
-      (v) => {
+    return this._makeSliderRow({
+      label:"Anisotropy η",
+      min:0, max:1, val:(typeof proc.anisotropy === 'number' ? proc.anisotropy : 1),
+      onChange:(v) => {
         proc.anisotropy = v;
         this._emitRuntimeChanged();
       },
-      0.01
-    );
+      step:0.01
+    });
   }
 
   /* ========== 패널 재구성/라벨 갱신 ========== */
@@ -290,7 +301,7 @@ class Inspector {
   }
 
   _updateAnyCardMeta(procId) {
-    const card = this.flow.listEl.querySelector(`.process-card[data-id="${procId}"]`);
+    const card = this.flow.listEl.querySelector(`.processflow-card[data-id="${procId}"]`);
     if (!card) return;
     const proc = this.flow.processes.find(p => p.id === procId);
     if (!proc) return;
@@ -323,7 +334,7 @@ class Inspector {
         else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
       }
       if (proc.mask && proc.mask !== '-') {
-        metaHtml += `| Mask ${proc.mask} `;
+        metaHtml += `| ${proc.mask.name} `;
       }
       if (proc.thickness && proc.thickness !== '-') {
         metaHtml += `| ${proc.thickness} nm`;
@@ -335,7 +346,8 @@ class Inspector {
 
   /* ========== 드롭다운 빌더 (포털/바깥클릭/ESC/뷰포트 내 배치) ========== */
 
-  _makeDropdownRow(label, items, current, onSelect, headerType = 'none', showAdd = false) {
+  _makeDropdownRow(input) {
+    const {label, items, current, onSelect, headerType='none', showAdd=false} = input;
     const row = document.createElement('div');
     row.className = 'insp-row';
 
@@ -395,35 +407,58 @@ class Inspector {
     // 메뉴-버튼 매핑
     this.menuBtn.set(menu, btn);
 
+    if (headerType == 'mask') {
+      const add = document.createElement('div');
+      add.className = 'insp-opt';
+      add.textContent = '(No Mask)';
+      add.addEventListener('mousedown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this._setBtnText(btn, '-', headerType);
+        this._closeMenu(menu);
+        onSelect('-');
+      });
+      menu.appendChild(add);
+    }
+
     // 옵션들
-    items.forEach(it => {
+    items.forEach(item => {
       const opt = document.createElement('div');
       opt.className = 'insp-opt';
 
+      let optTx = item;
+
       if (headerType === 'color') {
-        if (this.palette[it]) {
+        if (this.palette[item]) {
           const dot = document.createElement('span');
           dot.className = 'color-dot';
-          dot.style.background = this.palette[it] || '#aaa';
+          dot.style.background = this.palette[item] || '#aaa';
           opt.appendChild(dot);
         }
       } else if (headerType === 'icon') {
         const ic = document.createElement('span');
         ic.className = 'insp-kind-icon';
-        ic.textContent = this.kindIcon[it] || '';
+        ic.textContent = this.kindIcon[item] || '';
         opt.appendChild(ic);
+      } else if (headerType === 'mask') {
+        if (item !== '-') {
+          const ic = document.createElement('img');        
+          ic.className = 'insp-kind-maskthumbnail';
+          ic.src = item.thumbnail;
+          opt.appendChild(ic);
+          optTx = item.name;
+        }
       }
-
+      
       const txt = document.createElement('span');
-      txt.textContent = it;
+      txt.textContent = optTx;
       opt.appendChild(txt);
 
       opt.addEventListener('mousedown', (e) => {
         e.preventDefault(); e.stopPropagation();
         // 버튼 텍스트 갱신(화살표는 그대로 유지)
-        this._setBtnText(btn, it, headerType);
+        this._setBtnText(btn, item, headerType);
         this._closeMenu(menu);
-        onSelect(it);
+        onSelect(item);
       });
       menu.appendChild(opt);
     });
@@ -470,6 +505,15 @@ class Inspector {
       } else if (headerType === 'icon') {
         const icon = this.kindIcon[value] || '';
         textSpan.innerHTML = `<span class="insp-kind-icon" style="display:inline-block; margin-right:6px;">${icon}</span>${value}`;
+      } else if (headerType === 'mask') {
+        if (value === '-') {
+          textSpan.textContent = '(No Mask)';
+        } else {
+          const maskthumbnail = value.thumbnail;
+          // textSpan.innerHTML = `<img class="insp-kind-maskthumbnail" style="display:inline-block; margin-right:6px;" src="${maskthumbnail}"></img><span>${value.name}</span>`;
+          textSpan.innerHTML = `<div style="display:flex; align-items: center;"><img class="insp-kind-maskthumbnail" style="display:inline-block; margin-right:6px;" src="${maskthumbnail}"></img><span>${value.name}</span></div>`;
+        }
+
       } else {
         textSpan.textContent = value;
       }
@@ -536,7 +580,8 @@ class Inspector {
 
   /* ========== 슬라이더 빌더 ========== */
 
-  _makeSliderRow(label, min, max, val, onChange, step) {
+  _makeSliderRow(input) {
+    const {label, min, max, val, onChange, step} = input;
     const row = document.createElement('div');
     row.className = 'insp-row';
 
@@ -580,16 +625,16 @@ class Inspector {
 
 // ===== ProcessFlow 주입 =====
 window.addEventListener('DOMContentLoaded', () => {
-  const flow = window.SIMULOBJET.processFlow;
-  if (!flow) return;
+  const processflow = window.SIMULOBJET.processFlow;
+  if (!processflow) return;
 
-  const inspector = new Inspector(flow);
+  const inspector = new Inspector(processflow);
 
   // 카드 생성 시 Edit 버튼 핸들러 주입
-  const origMakeCardRow = flow._makeCardRow.bind(flow);
-  flow._makeCardRow = function (idx) {
+  const origMakeCardRow = processflow._makeCardRow.bind(processflow);
+  processflow._makeCardRow = function (idx) {
     const row = origMakeCardRow(idx);
-    const card = row.querySelector('.process-card');
+    const card = row.querySelector('.processflow-card');
     const editBtn = card.querySelector('.icon-btn');
     const proc = this.processes[idx];
 
@@ -605,9 +650,12 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   // render 이후 인스펙터 복원
-  const origRender = flow.render.bind(flow);
-  flow.render = function () {
+  const origRender = processflow.render.bind(processflow);
+  processflow.render = function () {
     origRender();
     inspector.rehydrateAll();
   };
+
+
+  window.SIMULOBJET.inspector = inspector;
 });
