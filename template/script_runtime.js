@@ -159,9 +159,98 @@ class ProcessRuntime {
         return (idx < 0) ? 0 : (idx + 1);  // gap = 이전 카드 아래
     }
 
-    _maskFnFor(step, grid) {
-        // 간단 버전: 전체 적용(Blanket). 필요하면 step.centerX/centerY/radius/eta 등 확장
-        return () => true;
+    _getMaskFun(data) {
+        if (!data) return (x, y) => true;
+        return (x, y) => this._isPointBlocked(x, y, data);
+    }
+
+    _isPointBlocked(x, y, maskData) {
+        // open: true, close: false
+        if (!maskData?.objects) return true;
+        const objects = maskData.objects;
+
+        // bottom → top 순서로 판단
+        for (let i = objects.length - 1; i >= 0; i--) {
+            const obj = objects[i];
+            if (!obj.visible) continue;
+
+            if (this._pointInsideShape(x, y, obj)) {
+                const polarity = obj.data?.polarity || 'positive';
+                return !(polarity === 'positive');
+            }
+        }
+        // 어떤 도형에도 포함되지 않으면 open
+        return true;
+    }
+
+    _pointInsideShape(x, y, obj) { // 도형 내부 판정 함수
+        const ox = obj.left || 0;
+        const oy = obj.top || 0;
+        const w = obj.width || 0;
+        const h = obj.height || 0;
+        const angle = obj.angle || 0;
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+
+        // 회전 각도가 있는 경우만 보정
+        const dx = x - ox;
+        const dy = y - oy;
+
+        let lx = dx, ly = dy;
+        if (angle !== 0) {
+            const rad = (-angle * Math.PI) / 180;
+            lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+            ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+        }
+
+        // 스케일 적용
+        lx /= scaleX;
+        ly /= scaleY;
+
+        switch (obj.type) {
+            case 'rect':
+                return lx >= 0 && lx <= w && ly >= 0 && ly <= h;
+
+            case 'circle': {
+                const r = obj.radius || w / 2;
+                const cx = w / 2;
+                const cy = h / 2;
+                return (lx - cx) ** 2 + (ly - cy) ** 2 <= r ** 2;
+            }
+
+            case 'ellipse': {
+                const rx = obj.rx || w / 2;
+                const ry = obj.ry || h / 2;
+                const ex = lx - w / 2;
+                const ey = ly - h / 2;
+                return (ex * ex) / (rx * rx) + (ey * ey) / (ry * ry) <= 1;
+            }
+
+            case 'polygon':
+                return this._pointInPolygon(lx, ly, obj.points);
+
+            case 'path':
+                if (!obj.path) return false;
+                const pts = obj.path
+                    .filter(p => p[0] === 'L' || p[0] === 'M')
+                    .map(p => ({ x: p[1], y: p[2] }));
+                return this._pointInPolygon(lx, ly, pts);
+
+            default:
+                return false;
+        }
+    }
+
+    _pointInPolygon(x, y, points) { // 폴리곤 내부 점 판정 (ray casting)
+        let inside = false;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const xi = points[i].x, yi = points[i].y;
+            const xj = points[j].x, yj = points[j].y;
+            const intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / (yj - yi + 1e-9) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
     }
 
     _applyStep(grid, step) {
@@ -171,14 +260,16 @@ class ProcessRuntime {
         const thk = Number(step.thickness || 0);
         const eta = (typeof step.anisotropy === 'number') ? step.anisotropy : 1.0;
         const rad = (typeof step.radius === 'number') ? step.radius : 0;
-        const mask = this._maskFnFor(step, grid);
+        const maskfun = this._getMaskFun(step.mask?.data)
+
+
 
         if (thk <= 0) return;
 
         if (kind === 'DEPO') {
-            grid.deposit(mask, mat, thk, eta, { radius: rad });
+            grid.deposit(maskfun, mat, thk, eta, { radius: rad });
         } else if (kind === 'ETCH') {
-            grid.etch(mask, mat, thk, eta, { radius: rad });
+            grid.etch(maskfun, mat, thk, eta, { radius: rad });
         } else if (kind === 'CMP') {
             grid.cmp(thk, step.material);
         }
