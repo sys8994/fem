@@ -2,7 +2,7 @@
 /* ========= 메인 클래스 ========= */
 class ProcessFlow {
   constructor(opts) {
-    this.listEl = opts.listEl;     // #process-card-list
+    this.listEl = opts.listEl;     // #processflow-card-list
     this.addBtn = opts.addBtn;     // #pf-add-btn
 
     // 상태
@@ -126,8 +126,7 @@ class ProcessFlow {
   }
   _wireGlobalKeys() {
     document.addEventListener('keydown', (e) => {
-      const inStructure = document.getElementById('process-panel').classList.contains('active');
-      if (!inStructure) return;
+      if (window.SIMULOBJET.activePanel !== 'processflow-panel') return;
       const ctrl = e.ctrlKey || e.metaKey;
 
       // ↑↓ 로 현재시점 arrow 이동 (arrowCardIndex 기준)
@@ -187,6 +186,8 @@ class ProcessFlow {
 
   /* --- 렌더 --- */
   render() {
+
+
     const list = this.listEl;
     list.innerHTML = '';
     const n = this.processes.length;
@@ -278,7 +279,7 @@ class ProcessFlow {
 
     // 카드 본체
     const card = document.createElement('div');
-    card.className = 'process-card';
+    card.className = 'processflow-card';
     card.dataset.id = proc.id;
     if (this.selectedIds.has(proc.id)) card.classList.add('selected');
 
@@ -408,7 +409,7 @@ class ProcessFlow {
     ghost.style.transform = 'scale(0.7)';         // 축소
     ghost.style.transformOrigin = 'top left';
     selectedIds.forEach(id => {
-      const card = this.listEl.querySelector(`.process-card[data-id="${id}"]`);
+      const card = this.listEl.querySelector(`.processflow-card[data-id="${id}"]`);
       if (card) ghost.appendChild(card.cloneNode(true));
     });
     document.body.appendChild(ghost);
@@ -508,7 +509,7 @@ class ProcessFlow {
     const aidx = this.arrowCardIndex; // -1..n-1
 
     let idx = 0;
-    for (const card of this.listEl.querySelectorAll('.process-card')) {
+    for (const card of this.listEl.querySelectorAll('.processflow-card')) {
       if (idx > aidx) {  // future (arrow 아래)
         card.classList.add('future');
         card.classList.remove('past');
@@ -561,7 +562,7 @@ class ProcessFlow {
     let arrowBottomPx = 0;
     if (this.arrowCardIndex >= 0) {
       const id = this.processes[this.arrowCardIndex]?.id;
-      const cardEl = id ? list.querySelector(`.process-card[data-id="${id}"]`) : null;
+      const cardEl = id ? list.querySelector(`.processflow-card[data-id="${id}"]`) : null;
       if (cardEl) {
         const r = cardEl.getBoundingClientRect();
         arrowBottomPx = r.bottom - hostTop;
@@ -571,7 +572,7 @@ class ProcessFlow {
     let railBottom = 0;
     const lastProc = this.processes[this.processes.length - 1];
     if (lastProc) {
-      const lastEl = list.querySelector(`.process-card[data-id="${lastProc.id}"]`);
+      const lastEl = list.querySelector(`.processflow-card[data-id="${lastProc.id}"]`);
       if (lastEl) {
         railBottom = lastEl.getBoundingClientRect().bottom - hostTop;
       }
@@ -591,24 +592,24 @@ class ProcessFlow {
 
 /* --- 부팅 --- */
 window.addEventListener('DOMContentLoaded', () => {
-  const flow = new ProcessFlow({
-    listEl: document.getElementById('process-card-list'),
-    addBtn: document.getElementById('pf-add-btn')
+  const processflow = new ProcessFlow({
+    listEl: document.getElementById('processflow-card-list'),
+    addBtn: document.getElementById('processflow-add-btn')
   });
 
   // 데모 초기값
-  flow._commitHistory();
-  flow._insertAtGap([
+  processflow._commitHistory();
+  processflow._insertAtGap([
     { id: 'p_init0', kind: 'SUBSTR', mask: '-', material: 'Si', thickness: 20, name: 'Substrate' },
-    { id: 'p_init1', kind: 'DEPO', mask: 'A', material: 'Ox', thickness: 10, name: 'DEPO1' },
-    { id: 'p_init2', kind: 'DEPO', mask: 'B', material: 'Nit', thickness: 10, name: 'ETCH1' },
-    { id: 'p_init3', kind: 'ETCH', mask: 'B', material: 'Nit', thickness: 5, name: 'ETCH1' },
+    { id: 'p_init1', kind: 'DEPO', mask: '-', material: 'Ox', thickness: 10, name: 'DEPO1' },
+    { id: 'p_init2', kind: 'DEPO', mask: '-', material: 'Nit', thickness: 10, name: 'ETCH1' },
+    { id: 'p_init3', kind: 'ETCH', mask: '-', material: 'Nit', thickness: 5, name: 'ETCH1' },
     { id: 'p_init4', kind: 'CMP', mask: '-', material: '-', thickness: 10, name: 'CMP1' },
   ], 0);
 
   // 현재 시점: 두 번째 카드까지 적용 예시
-  flow.arrowBoundId = flow.processes[flow.processes.length - 1]?.id || null;
-  flow.render();
+  processflow.arrowBoundId = processflow.processes[processflow.processes.length - 1]?.id || null;
+  processflow.render();
 
-  window.SIMULOBJET.processFlow = flow;   // 👈 전역 포인터
+  window.SIMULOBJET.processFlow = processflow;   // 👈 전역 포인터
 });
