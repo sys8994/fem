@@ -4,40 +4,56 @@ class GridRenderer {
         this.wrap = document.getElementById(containerId);
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x12161c);
-
+    
         const w = this.wrap.clientWidth || 800;
         const h = this.wrap.clientHeight || 600;
-
+    
+        // --- 카메라 초기 생성만 (위치 설정은 따로) ---
         this.camera = new THREE.PerspectiveCamera(45, w / h, 1, 50000);
         this.camera.up.set(0, 0, 1);
-        this.camera.position.set(500, -500, 600);
-
+    
+        // --- 렌더러 ---
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(w, h);
         this.wrap.innerHTML = '';
         this.wrap.appendChild(this.renderer.domElement);
-
+    
+        // --- 컨트롤러 ---
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.target.set(0, 0, 100);
-
-        // light
+    
+        // --- 라이트 ---
         this.scene.add(new THREE.AmbientLight(0x7f7f7f));
         const dir = new THREE.DirectionalLight(0xffffff, 0.9);
         dir.position.set(800, 900, 1400);
         this.scene.add(dir);
-
-        // helpers
+    
+        // --- 그리드 및 기타 ---
         this.xyGrid = null;
         this.ground = null;
-
-        // instanced meshes by material
         this.inst = {};
         this.boxGeo = null;
         this.maxInstances = 0;
-
+    
         window.addEventListener('resize', () => this._onResize());
         this._animate();
-    }
+    
+        // 🔹 카메라를 기본 위치로 세팅 (초기화)
+        this.setDefaultCamera();
+      }
+
+      setDefaultCamera(grid = null) {
+        // grid 정보가 있으면 중심을 계산해서 target 조정
+        let cx = 0, cy = 0, cz = 100;
+        if (grid) {
+          cx = (grid.xmin + grid.xmax) / 2 || 0;
+          cy = (grid.ymin + grid.ymax) / 2 || 0;
+          cz = grid.maxHeight ? grid.maxHeight() * 0.5 : 100;
+        }
+    
+        this.camera.position.set(400, -400, 500);
+        this.controls.target.set(cx, cy, cz);
+        this.camera.lookAt(cx, cy, cz);
+      }
 
     _onResize() {
         const w = this.wrap.clientWidth || 800;
@@ -50,21 +66,27 @@ class GridRenderer {
     _setupDomainHelpers(grid) {
         if (this.ground) this.scene.remove(this.ground);
         if (this.xyGrid) this.scene.remove(this.xyGrid);
-
+    
+        // 도메인 중심 계산
+        const cx = grid.LXeff / 2;
+        const cy = grid.LYeff / 2;
+    
+        // 평면 및 격자 중심을 (0,0)에 정렬
         const planeGeo = new THREE.PlaneGeometry(grid.LXeff * 1.2, grid.LYeff * 1.2);
         this.ground = new THREE.Mesh(
-            planeGeo,
-            new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
+          planeGeo,
+          new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
         );
+        this.ground.position.set(0, 0, 0);
         this.scene.add(this.ground);
-
+    
         const size = Math.max(grid.LXeff, grid.LYeff) * 1.2;
         const div = Math.max(grid.NX, grid.NY);
         this.xyGrid = new THREE.GridHelper(size, div, 0x3a3f45, 0x2a2f35);
-        this.xyGrid.rotation.x = Math.PI / 2; // XZ→XY
+        this.xyGrid.rotation.x = Math.PI / 2;
         this.xyGrid.position.set(0, 0, 0.05);
         this.scene.add(this.xyGrid);
-    }
+      }
 
     _ensureInstanced(grid, materialColor) {
         // 단위 큐브로 생성
@@ -85,50 +107,51 @@ class GridRenderer {
 
 
     updateFromGrid(grid, materialColor) {
-
         if (!grid) return;
         this._setupDomainHelpers(grid);
         this._ensureInstanced(grid, materialColor);
-
-        // 카메라 위치 업데이트(도메인에 맞춤)
-        //   this.camera.position.set(grid.LXeff*0.9, -grid.LYeff*0.9, Math.max(300, grid.maxHeight()*1.6));
-        //   this.controls.target.set(0,0,Math.max(40, grid.maxHeight()*0.5));
-
-        // 인스턴스 배치
+    
+        // 인스턴스 배치 시에도 offset 적용 (구조 중심을 0,0으로 이동)
+    
         const dummy = new THREE.Object3D();
-        const counts = {}; for (const k of Object.keys(this.inst)) counts[k] = 0;
-
+        const counts = {};
+        for (const k of Object.keys(this.inst)) counts[k] = 0;
+    
         for (let i = 0; i < grid.NX; i++) {
-            for (let j = 0; j < grid.NY; j++) {
-                const col = grid.getColumn(i, j);
-                let prev = 0;
-                for (const [m, zEnd] of col) {
-                    const h = zEnd - prev; if (h <= 0) { prev = zEnd; continue; }
-                    dummy.position.set(grid.worldX(i), grid.worldY(j), prev + h / 2);
-                    // 실제 단위 스케일 적용
-                    dummy.scale.set(grid.dx, grid.dy, h);
-                    dummy.updateMatrix();
-                    if (this.inst[m]) {
-                        this.inst[m].setMatrixAt(counts[m]++, dummy.matrix);
-                    }
-                    prev = zEnd;
-                }
+          for (let j = 0; j < grid.NY; j++) {
+            const col = grid.getColumn(i, j);
+            let prev = 0;
+            for (const [m, zEnd] of col) {
+              const h = zEnd - prev;
+              if (h <= 0) { prev = zEnd; continue; }
+    
+              // 중심 보정 적용
+              dummy.position.set(grid.worldX(i), grid.worldY(j), prev + h / 2);
+              dummy.scale.set(grid.dx, grid.dy, h);
+              dummy.updateMatrix();
+    
+              if (this.inst[m]) {
+                this.inst[m].setMatrixAt(counts[m]++, dummy.matrix);
+              }
+              prev = zEnd;
             }
+          }
         }
+    
         for (const k of Object.keys(this.inst)) {
-            this.inst[k].count = counts[k] || 0;
-            this.inst[k].instanceMatrix.needsUpdate = true;
+          this.inst[k].count = counts[k] || 0;
+          this.inst[k].instanceMatrix.needsUpdate = true;
         }
-    }
+      }
 
-    _animate() {
+      _animate() {
         const loop = () => {
-            requestAnimationFrame(loop);
-            this.controls.update();
-            this.renderer.render(this.scene, this.camera);
+          requestAnimationFrame(loop);
+          this.controls.update();
+          this.renderer.render(this.scene, this.camera);
         };
         loop();
-    }
+      }
 }
 
 // ===== 프로세스 실행기 =====
@@ -159,9 +182,13 @@ class ProcessRuntime {
         return (idx < 0) ? 0 : (idx + 1);  // gap = 이전 카드 아래
     }
 
-    _getMaskFun(data) {
-        if (!data) return (x, y) => true;
-        return (x, y) => this._isPointBlocked(x, y, data);
+    _getMaskFun(maskid) {
+        if (!maskid) return (x, y) => true;
+        if (maskid == '-') return (x, y) => true;
+        const maskdata = window.SIMULOBJET.maskmanager.maskList.find(mask => mask.id === maskid);
+        return (x, y) => this._isPointBlocked(x, y, maskdata.data);
+        // if (!maskid) return (x, y) => true;
+        // return (x, y) => this._isPointBlocked(x, y, maskid);
     }
 
     _isPointBlocked(x, y, maskData) {
@@ -258,16 +285,17 @@ class ProcessRuntime {
         if (kind == 'SUBSTR') kind = 'DEPO';
         const mat = step.material || 'A';
         const thk = Number(step.thickness || 0);
-        const eta = (typeof step.anisotropy === 'number') ? step.anisotropy : 1.0;
+        const eta = (typeof step.anisotropy === 'number') ? step.anisotropy : 0;
         const rad = (typeof step.radius === 'number') ? step.radius : 0;
-        const maskfun = this._getMaskFun(step.mask?.data)
+        const maskfun = this._getMaskFun(step.mask)
 
 
 
         if (thk <= 0) return;
 
         if (kind === 'DEPO') {
-            grid.deposit(maskfun, mat, thk, eta, { radius: rad });
+            grid.deposit_partial(maskfun, mat, thk, eta);
+            // grid.deposit(maskfun, mat, thk, eta);
         } else if (kind === 'ETCH') {
             grid.etch(maskfun, mat, thk, eta, { radius: rad });
         } else if (kind === 'CMP') {
