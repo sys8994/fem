@@ -5,22 +5,18 @@
     --bg-card: #36414f;
     --border-color: #30363d;
     --border-color-focus: #888f96;
-    --text-primary: rgba(230, 237, 243, 0.9);
-    --text-secondary: rgba(230, 237, 243, 0.7);
+    --text-primary: rgb(207, 213, 219);
+    --text-secondary: rgb(161, 166, 170);
     --accent-blue: #58a6ff;
+    --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
 }
-
-
-
-
-
-
 
 
 
 /* ===== App Frame ===== */
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: var(--font-main);
     margin: 0;
     overflow: hidden;
     background-color: var(--bg-dark);
@@ -29,6 +25,183 @@ body {
     flex-direction: column;
     height: 100vh;
 }
+
+
+
+
+/* --- Layout --- */
+.panel {
+    width: 100%;
+    height: 100vh;
+    display: none;
+}
+
+.panel.active {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.hidden {
+    display: none !important;
+}
+
+
+.project-manager-container {
+    width: 1028px;
+    margin-top: 100px;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+/* --- Header --- */
+.title {
+    font-size: 3rem;
+    letter-spacing: 5px;
+    margin-bottom: 10px;
+}
+
+.subtitle {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+}
+
+.version-info {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 25px;
+}
+
+.homepage-btn1 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    cursor: pointer;
+    width: 150px;
+    height: 35px;
+    font-size: 15px;
+}
+
+.homepage-btn1:first-of-type {
+    margin-left: auto;
+    /* 첫 번째 오른쪽 요소를 기준으로 오른쪽 그룹 밀기 */
+}
+
+.homepage-btn1:hover {
+    border: 1px solid var(--border-color-focus);
+    background-color: var(--bg-dark);
+}
+
+
+/* --- Cards --- */
+.project-card-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 10px;
+    user-select: none;
+}
+
+.project-card {
+    width: 240px;
+    height: 310px;
+    background-color: var(--bg-card, #36414f);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 4px;
+    box-sizing: border-box;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.05s ease;
+    padding: 0px;
+}
+
+.project-card:hover {
+    transform: scale(1.02);
+    border-color: var(--accent-blue, #58a6ff);
+}
+
+.project-thumb {
+    width: 100%;
+    height: 200px;
+    background-color: #222;
+    object-fit: cover;
+}
+
+.project-info {
+    padding: 8px;
+    text-align: left;
+    font-size: 10px;
+}
+
+.project-name {
+    font-weight: bold;
+    font-size: 15px;
+
+}
+
+.project-meta {
+    font-size: 12px;
+    color: var(--text-secondary, #a8b2bc);
+}
+
+.project-meta::before {
+    content: '- ';
+    margin-right: 3px;
+}
+
+.project-upperbtn {
+    position: absolute;
+    top: 6px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: var(--text-secondary);
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    line-height: 15px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.05s ease;
+}
+
+.project-card:hover .project-upperbtn {
+    opacity: 1;
+}
+
+.project-upperbtn:hover {
+    background-color: rgba(255, 70, 70, 0.85);
+    color: var(--text-primary);
+}
+
+.project-upperbtn-copy {
+    right: 30px;
+}
+
+.project-upperbtn-delete {
+    right: 6px;
+}
+
+
+.underbar {
+    margin: 0px 10px 15px 10px;
+    height: 1px;
+    border-bottom: 0.5px solid var(--text-secondary);
+    opacity: 0.5;
+}
+
 
 
 button {
@@ -43,7 +216,7 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    padding: 0px 12px 0px 12px;
     box-sizing: border-box;
     flex-shrink: 0;
 }
@@ -60,12 +233,17 @@ button {
 
 .project-title {
     margin-left: 20px;
+    padding-top: 3px;
     color: var(--text-secondary);
+}
+
+.project-title:hover {
+    cursor: pointer;
+    color: var(--text-primary);
 }
 
 .top-bar-button {
     margin: 8px;
-
     background: none;
     border-radius: 8px;
     border: none;
@@ -79,6 +257,68 @@ button {
     color: var(--text-primary);
     background-color: var(--bg-dark);
 }
+
+.top-bar-leftbutton {
+    margin-right: 8px;
+    padding-top: 6px;
+    background: none;
+    border-radius: 8px;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 25px;
+    /* transition: font-weight .2s, color .2s; */
+}
+
+.top-bar-leftbutton:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-dark);
+}
+
+
+.icon-save-wrapper {
+    position: relative;
+    display: inline-block;
+    margin: 8px;
+    background: none;
+    border-radius: 8px;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 17px;
+}
+
+.overlay-plus {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 10px;
+    color: var(--bg-dark);
+    background: var(--text-secondary);
+    border-radius: 50%;
+    width: 8px;
+    height: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    border: 0.5px solid var(--bg-dark);
+}
+
+
+.icon-save-wrapper:hover {
+    color: var(--text-primary) !important;
+}
+
+.icon-save-wrapper:hover .overlay-plus {
+    background: var(--text-primary) !important;
+}
+
+
+
+
+
+
 
 .main-content {
     display: flex;
@@ -152,11 +392,21 @@ button {
     padding: 15px;
     box-sizing: border-box;
     flex-shrink: 0;
-
-    display: flex;               /* ✅ 세로 flex 컨테이너로 만듦 */
-    flex-direction: column;      /* 위에서 아래로 쌓이도록 */
-    overflow: hidden;            /* 내부 스크롤은 자식에게 맡김 */
+    display: flex;
+    /* ✅ 세로 flex 컨테이너로 만듦 */
+    flex-direction: column;
+    /* 위에서 아래로 쌓이도록 */
 }
+
+.panel-noscrollbar {
+    overflow: hidden;
+    /* 내부 스크롤은 자식에게 맡김 */
+}
+
+.panel-scrollbar {
+    overflow-y: scroll;
+}
+
 
 h3,
 h4 {
@@ -245,11 +495,16 @@ input[type="range"] {
     gap: 4px;
     box-sizing: border-box;
 }
+
 .row2 {
-    display: flex;              /* 가로 방향으로 정렬 */
-    flex-direction: row;        /* (기본값) 왼쪽 → 오른쪽 */
-    align-items: center;        /* 세로 방향 중앙 맞춤 */
-    justify-content: flex-start;/* 가로 정렬: 왼쪽 정렬 (필요시 center, space-between 등) */
+    display: flex;
+    /* 가로 방향으로 정렬 */
+    flex-direction: row;
+    /* (기본값) 왼쪽 → 오른쪽 */
+    align-items: center;
+    /* 세로 방향 중앙 맞춤 */
+    justify-content: flex-start;
+    /* 가로 정렬: 왼쪽 정렬 (필요시 center, space-between 등) */
     margin: 10px;
 }
 
@@ -378,6 +633,7 @@ label {
     opacity: 0.3;
     cursor: default !important;
 }
+
 .rightpanel-btn3.unclickable:hover {
     border: 1px solid var(--border-color) !important;
 }
@@ -385,7 +641,7 @@ label {
 
 
 .masklist-item {
-    user-select: none;    
+    user-select: none;
     width: 250px;
     height: 250px;
     display: flex;
@@ -394,7 +650,7 @@ label {
     justify-content: flex-start;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    cursor:pointer;
+    cursor: pointer;
     margin: 10px;
     padding: 6px;
     opacity: 0.7;
@@ -403,30 +659,40 @@ label {
 .masklist-item.selected {
     opacity: 1;
     background-color: var(--bg-panel);
-    outline: 2px solid var(--text-secondary); /* 크기 변화 없음 */
+    outline: 2px solid var(--text-secondary);
+    /* 크기 변화 없음 */
 }
 
-.masklist-item:hover {    
+.masklist-item:hover {
     border: 1px solid var(--border-color-focus);
 }
 
 
 .masklist-viewer-area {
     display: flex;
-    flex-direction: column;  /* 세로 배치 */
-    height: 100%;            /* 전체 높이 채움 */
-    width: 100%;             /* 폭도 100% */
+    flex-direction: column;
+    /* 세로 배치 */
+    height: 100%;
+    /* 전체 높이 채움 */
+    width: 100%;
+    /* 폭도 100% */
 }
 
 #maskListContainer {
     margin: 5px 20px;
-    
-    flex: 1;                 /* 남은 높이 모두 차지 */        
-    display: grid;                  /* flex → grid 변경 */
-    grid-template-columns: repeat(auto-fill, 290px); /* 100px 카드 자동 줄바꿈 */
-    gap: 10px;                      /* 가로·세로 간격 모두 일정 */
-    justify-content: start;         /* 왼쪽 정렬 */
-    align-content: start;           /* 위쪽 정렬 */
+
+    flex: 1;
+    /* 남은 높이 모두 차지 */
+    display: grid;
+    /* flex → grid 변경 */
+    grid-template-columns: repeat(auto-fill, 290px);
+    /* 100px 카드 자동 줄바꿈 */
+    gap: 10px;
+    /* 가로·세로 간격 모두 일정 */
+    justify-content: start;
+    /* 왼쪽 정렬 */
+    align-content: start;
+    /* 위쪽 정렬 */
     box-sizing: border-box;
     overflow-y: scroll;
     overflow-x: none;
@@ -434,25 +700,35 @@ label {
 }
 
 .masklist-thumbnail {
-    width:100%;
-    height:80%;
-    display:flex;
-    align-items:center;
-    justify-content:center;
+    width: 100%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
+
 .masklist-infotext {
-    font-size:13px;
-    padding:2px 4px;
-    text-align:left;
-    width: 85%;             /* 고정 너비 (필수) */
-    display: -webkit-box;              /* flexbox 유사 레이아웃 */
-    -webkit-box-orient: vertical;      /* 세로 방향으로 정렬 */
-    -webkit-line-clamp: 2;             /* 최대 2줄까지만 표시 */
-    overflow: hidden;                  /* 넘치는 텍스트 숨김 */
-    text-overflow: ellipsis;           /* 마지막에 … 표시 */
-    line-clamp: 2;                     /* 최신 표준 속성 (optional) */
-    white-space: normal;   /* 기본 줄바꿈 허용 */
-    word-break: break-all; /* 단어 중간에서도 줄바꿈 허용 */
+    font-size: 13px;
+    padding: 2px 4px;
+    text-align: left;
+    width: 85%;
+    /* 고정 너비 (필수) */
+    display: -webkit-box;
+    /* flexbox 유사 레이아웃 */
+    -webkit-box-orient: vertical;
+    /* 세로 방향으로 정렬 */
+    -webkit-line-clamp: 2;
+    /* 최대 2줄까지만 표시 */
+    overflow: hidden;
+    /* 넘치는 텍스트 숨김 */
+    text-overflow: ellipsis;
+    /* 마지막에 … 표시 */
+    line-clamp: 2;
+    /* 최신 표준 속성 (optional) */
+    white-space: normal;
+    /* 기본 줄바꿈 허용 */
+    word-break: break-all;
+    /* 단어 중간에서도 줄바꿈 허용 */
 
 }
 
@@ -537,17 +813,21 @@ label {
 ::-webkit-scrollbar {
     width: 6px;
 }
+
 ::-webkit-scrollbar-thumb {
     background-color: rgb(100, 100, 100);
     border-radius: 2px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background-color: rgb(150, 150, 150);
 }
+
 ::-webkit-scrollbar-track {
     background-color: #ffffff00;
     border-radius: 2px;
 }
+
 ::-webkit-scrollbar-track:hover {
     background-color: #ffffff22;
     border-radius: 2px;
@@ -689,11 +969,11 @@ label {
     position: relative;
     z-index: 1;
     overflow: hidden;
+    cursor: pointer;
 }
 
 /* 상단 좌/우 고정 배치 */
 .processflow-card .card-left {
-    cursor: pointer;
     grid-column: 1;
     /* row 1 자동 */
 }
@@ -819,10 +1099,10 @@ label {
 }
 
 /* 카드 확장 표시(상단 레이아웃은 그대로) */
-.processflow-card.expanded {
+/* .processflow-card.expanded {
     border-color: #8ac0ff;
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.22) inset;
-}
+} */
 
 /* 패널의 기본 배치(전환 없음) */
 .inspector-panel {
@@ -905,7 +1185,7 @@ label {
 .insp-dropdown-menu {
     /* 포지션은 JS에서 fixed로 설정됨 */
     width: 210px !important;
-    
+
     max-height: 50vh;
     overflow: auto;
     background: #1a1f26;
@@ -923,13 +1203,15 @@ label {
 .insp-opt {
     display: flex;
     align-items: center;
-    flex:1;
+    flex: 1;
     gap: 4px;
     padding: 4px;
     border-radius: 6px;
-    cursor: pointer;    
-    overflow: hidden;                  /* 넘치는 텍스트 숨김 */
-    text-overflow: ellipsis;           /* 마지막에 … 표시 */    
+    cursor: pointer;
+    overflow: hidden;
+    /* 넘치는 텍스트 숨김 */
+    text-overflow: ellipsis;
+    /* 마지막에 … 표시 */
 }
 
 .insp-opt:hover {
@@ -983,7 +1265,7 @@ label {
 }
 
 
-.insp-kind-maskthumbnail{
+.insp-kind-maskthumbnail {
     width: 25px;
     height: 25px;
 }
@@ -1016,91 +1298,192 @@ label {
 /* Modal */
 .custom-modal.hidden {
     display: none;
-  }
-  
-  .custom-modal {
+}
+
+.custom-modal {
     position: fixed;
     inset: 0;
     z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: "Segoe UI", sans-serif;
-  }
-  
-  .custom-modal-backdrop {
+}
+
+.custom-modal-backdrop {
     position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(2px);
-  }
-  
-  .custom-modal-box {
+}
+
+.custom-modal-input {
+    margin-bottom: 15px;
+}
+
+.custom-modal-box {
     position: relative;
     background: var(--bg-panel);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
     z-index: 10;
-    width: 340px;
+    width: 300px;
     text-align: center;
     padding: 24px 28px;
     color: var(--text-primary);
-  }
-  
-  .custom-modal-message {
+}
+
+.custom-modal-message {
     font-size: 15px;
     margin-bottom: 22px;
     color: var(--text-primary);
     line-height: 1.5;
-  }
-  
-  .custom-modal-buttons {
+}
+
+.custom-modal-buttons {
     display: flex;
     justify-content: center;
     gap: 14px;
-  }
-  
-  .custom-modal-buttons button {
+    margin-top: 15px;
+}
+
+.custom-modal-buttons button {
     padding: 8px 22px;
     border-radius: 6px;
     font-weight: 600;
     border: 1px solid var(--border-color);
     cursor: pointer;
     transition: background 0.05s ease, border-color 0.05s ease;
-  }
-  
-  /* --- YES 버튼 --- */
-  .btn-confirm {
+}
+
+.custom-modal-textbox {
+    width: 100%;
+}
+
+/* --- YES 버튼 --- */
+.btn-confirm {
+    width: 100px;
     background: var(--accent-blue);
     border-color: var(--accent-blue);
     color: #fff;
-  }
-  .btn-confirm:hover {
+}
+
+.btn-confirm:hover {
     background: #4693ea;
-  }
-  
-  /* --- Cancel 버튼 --- */
-  .btn-cancel {
+}
+
+/* --- Cancel 버튼 --- */
+.btn-cancel {
+    width: 100px;
     background: var(--bg-card);
     color: var(--text-secondary);
-  }
-  .btn-cancel:hover {
+}
+
+.btn-cancel:hover {
     border-color: var(--border-color-focus);
     color: var(--text-primary);
-  }
-  
-  /* --- 애니메이션 효과 (선택사항) --- */
-  .custom-modal-box {
+}
+
+/* --- 애니메이션 효과 (선택사항) --- */
+.custom-modal-box {
     transform: scale(0.95);
     opacity: 0;
     animation: modalFadeIn 0.05s ease forwards;
-  }
-  
-  @keyframes modalFadeIn {
+}
+
+@keyframes modalFadeIn {
     to {
-      transform: scale(1);
-      opacity: 1;
+        transform: scale(1);
+        opacity: 1;
     }
-  }
-  
+}
+
+/* --- Material Modal (Row Layout) --- */
+.custom-modal-material {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.material-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.material-label {
+    width: 70px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary, #a8b2bc);
+    text-align: right;
+}
+
+.material-name-input {
+    flex: 1;
+    height: 33px;
+    margin: 0px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-dark, #161b22);
+    color: var(--text-primary, #e6edf3);
+    font-size: 0.9rem;
+}
+
+.material-name-input:focus {
+    outline: none;
+    border-color: var(--accent-blue, #58a6ff);
+}
+
+
+.color-picker-wrapper {
+    position: relative;
+    flex: 1;
+    height: 33px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-dark, #161b22);
+    cursor: pointer;
+    transition: border-color 0.05s ease;
+}
+
+.color-picker-wrapper:hover {
+    border-color: var(--accent-blue, #58a6ff);
+}
+
+/* color input이 wrapper를 완전히 채우도록 */
+.material-color-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+/* 브라우저별 기본 사각형 제거 */
+.material-color-input::-webkit-color-swatch-wrapper {
+    padding: 0;
+    margin: 0;
+    border: none;
+}
+
+.material-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 0;
+}
+
+/* Firefox용 */
+.material-color-input::-moz-color-swatch {
+    border: none;
+    border-radius: 0;
+}
