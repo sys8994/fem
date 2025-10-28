@@ -4,6 +4,7 @@ class ProcessFlow {
   constructor(opts) {
     this.listEl = opts.listEl;     // #processflow-card-list
     this.addBtn = opts.addBtn;     // #pf-add-btn
+    this.prj = window.SIMULOBJET.projectManager;
 
     // 상태
     this.processes = [];
@@ -15,7 +16,7 @@ class ProcessFlow {
     this.pastZoneEl = null;
 
     // 재질 팔레트(요청 사항)
-    this.kindIcon = { SUBSTR: '⬜', DEPO: '🧱', ETCH: '⛏️', CMP: '🧽' };
+    this.kindIcon = { SUBSTR: '⬜', DEPO: '🧱', ALD: '🧱', ETCH: '⛏️', CMP: '🧽' };
     this.materialColor = { Si: 'rgb(220, 220, 216)', Ox: 'rgb(160, 230, 196)', Nit: 'rgb(240, 240, 110)' };
 
     // select bar / arrow 바인딩
@@ -38,11 +39,42 @@ class ProcessFlow {
     this._wireGlobalKeys();
     this._wireUI();
     this.render();
+
   }
 
-  deepClone(o){
+  deepClone(o) {
     return JSON.parse(JSON.stringify(o))
   };
+
+
+
+  initiate(snapshot) {
+
+    // 상태 초기화
+    this.processes = [];
+    this.selectedIds = new Set();
+    this.lastFocusIndex = null;
+    this.clipboard = [];
+    this.undoStack = [];
+    this.redoStack = [];
+    this.pastZoneEl = null;
+
+    // 초기값
+    if (snapshot) this._restore(snapshot);
+    else {
+      let initialProcess = [{ id: 'p_init0', kind: 'SUBSTR', mask: '-', material: 'Si', thickness: 30, name: 'Substrate' }];
+      this._insertAtGap(initialProcess, 0);
+    }
+    this._commitHistory();
+
+    this.undoStack = [];
+    this.redoStack = [];
+
+    // 현재 시점: 두 번째 카드까지 적용 예시
+    this.arrowBoundId = this.processes[this.processes.length - 1]?.id || null;
+    this.render();
+  }
+
 
   /* --- 기본 프로세스 생성 --- */
   createDefaultProcess() {
@@ -51,7 +83,7 @@ class ProcessFlow {
       kind: 'NEW',       // SUBSTR | DEPO | ETCH | CMP ...
       mask: '',
       material: '',     // Si | Ox | Nit
-      thickness: 0,
+      thickness: 10,
       name: '',
     };
   }
@@ -77,32 +109,46 @@ class ProcessFlow {
 
   /* --- 히스토리 --- */
   _snapshot() {
+    this.prj._setEditStarStatus(true);
+    const projectName = document.getElementById('project-name');
     return {
       processes: this.deepClone(this.processes),
       selectedIds: Array.from(this.selectedIds),
       selectBarBoundId: this.selectBarBoundId,
       arrowBoundId: this.arrowBoundId,
       lastFocusIndex: this.lastFocusIndex,
-      materialColor: this.deepClone(this.materialColor)
+      materialColor: this.deepClone(this.materialColor),
+      prjname: projectName.innerText,
     };
   }
+
   _restore(snap) {
+    const projectName = document.getElementById('project-name');
     this.processes = this.deepClone(snap.processes);
     this.selectedIds = new Set(snap.selectedIds || []);
     this.selectBarBoundId = snap.selectBarBoundId ?? null;
     this.arrowBoundId = snap.arrowBoundId ?? null;
     this.lastFocusIndex = snap.lastFocusIndex ?? null;
+    projectName.innerText = snap.prjname;
     if (snap.materialColor) this.materialColor = this.deepClone(snap.materialColor);
     this.render();
+    window.SIMULOBJET.inspector._updateAnyCardMeta()
   }
-  _commitHistory() { this.undoStack.push(this._snapshot()); this.redoStack.length = 0; }
+
+  _commitHistory() {
+    this.undoStack.push(this._snapshot());
+    this.redoStack.length = 0;
+  }
+
   undo() {
     if (!this.undoStack.length) return;
     const cur = this._snapshot();
     const prev = this.undoStack.pop();
     this.redoStack.push(cur);
     this._restore(prev);
+    if (this.undoStack.length == 0) this.prj._setEditStarStatus(false);
   }
+
   redo() {
     if (!this.redoStack.length) return;
     const cur = this._snapshot();
@@ -126,7 +172,7 @@ class ProcessFlow {
   }
   _wireGlobalKeys() {
     document.addEventListener('keydown', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'processflow-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'processflow-panel') return;
       const ctrl = e.ctrlKey || e.metaKey;
 
       // ↑↓ 로 현재시점 arrow 이동 (arrowCardIndex 기준)
@@ -189,6 +235,7 @@ class ProcessFlow {
 
 
     const list = this.listEl;
+    const prevScroll = list.scrollTop;
     list.innerHTML = '';
     const n = this.processes.length;
 
@@ -214,6 +261,7 @@ class ProcessFlow {
     this._updatePastFutureStyles();
     this._updateRailAndPastZone();
 
+    list.scrollTop = prevScroll;
     // 런타임 갱신 이벤트(색 정보 포함)
     window.dispatchEvent(new CustomEvent('simflow:changed', { detail: this._snapshot() }));
 
@@ -297,11 +345,11 @@ class ProcessFlow {
     let metaHtml = '';
     if ((proc.material) && (proc.material !== '-')) {
       const clr = this.materialColor[proc.material] || '#ccc';
-      if (proc.kind == 'CMP')  metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
+      if (proc.kind == 'CMP') metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
       else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
     }
     if (proc.mask && proc.mask !== '-') {
-      metaHtml += `| Mask ${proc.mask} `;
+      metaHtml += `| ${proc.mask.name} `;
     }
     if (proc.thickness && proc.thickness !== '-') {
       metaHtml += `| ${proc.thickness} nm`;
@@ -334,6 +382,13 @@ class ProcessFlow {
         else this.selectedIds.add(id);
         this.lastFocusIndex = idx;
         this.render(); return;
+      } else {
+        if (this.selectedIds.has(id)) {
+          this.selectedIds.clear();
+        } else {
+          this.selectedIds.clear(); 
+          this.selectedIds.add(id);
+        }
       }
       if (e.shiftKey && this.lastFocusIndex != null) {
         const a = Math.min(this.lastFocusIndex, idx);
@@ -342,8 +397,8 @@ class ProcessFlow {
         for (let i = a; i <= b; i++) this.selectedIds.add(this.processes[i].id);
         this.render(); return;
       }
-      this.selectedIds.clear();
-      this.selectedIds.add(id);
+      // this.selectedIds.clear();
+      // this.selectedIds.add(id);      
       this.lastFocusIndex = idx;
       this.render();
 
@@ -559,15 +614,17 @@ class ProcessFlow {
 
     // 기준 위치 계산
     const hostTop = list.getBoundingClientRect().top;
+    const scrollY = list.scrollTop;  // 스크롤 오프셋 보정 추가
     let arrowBottomPx = 0;
     if (this.arrowCardIndex >= 0) {
       const id = this.processes[this.arrowCardIndex]?.id;
       const cardEl = id ? list.querySelector(`.processflow-card[data-id="${id}"]`) : null;
       if (cardEl) {
         const r = cardEl.getBoundingClientRect();
-        arrowBottomPx = r.bottom - hostTop;
+        arrowBottomPx = r.bottom - hostTop + scrollY;
       }
     }
+
     // 리스트 마지막 카드 bottom
     let railBottom = 0;
     const lastProc = this.processes[this.processes.length - 1];
@@ -598,14 +655,9 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // 데모 초기값
-  processflow._commitHistory();
-  processflow._insertAtGap([
-    { id: 'p_init0', kind: 'SUBSTR', mask: '-', material: 'Si', thickness: 20, name: 'Substrate' },
-    { id: 'p_init1', kind: 'DEPO', mask: '-', material: 'Ox', thickness: 10, name: 'DEPO1' },
-    { id: 'p_init2', kind: 'DEPO', mask: '-', material: 'Nit', thickness: 10, name: 'ETCH1' },
-    { id: 'p_init3', kind: 'ETCH', mask: '-', material: 'Nit', thickness: 5, name: 'ETCH1' },
-    { id: 'p_init4', kind: 'CMP', mask: '-', material: '-', thickness: 10, name: 'CMP1' },
-  ], 0);
+  // let initialProcess = [{ id: 'p_init0', kind: 'SUBSTR', mask: '-', material: 'Si', thickness: 20, name: 'Substrate' }];
+  // processflow._commitHistory();
+  // processflow._insertAtGap(initialProcess, 0);
 
   // 현재 시점: 두 번째 카드까지 적용 예시
   processflow.arrowBoundId = processflow.processes[processflow.processes.length - 1]?.id || null;
