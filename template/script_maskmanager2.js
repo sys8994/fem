@@ -1,15 +1,4 @@
 
-      this._ctrlDragActive = false;
-      this._ctrlPointerOffset = { dx: 0, dy: 0 };
-      this._dragStartPointer = null;
-    });
-
-    this.canvas.on('mouse:wheel', (opt) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
-      if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
-      const delta = opt.e.deltaY;
-      let zoom = this.canvas.getZoom();
-
       zoom *= 0.999 ** delta; // 스무스한 줌 비율
       zoom = Math.min(Math.max(zoom, 0.2 * this.scale), 5 * this.scale); // 0.1~10배 사이 제한
 
@@ -385,7 +374,7 @@
     };
 
     const keyDown = (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
 
       if (e.key === 'Escape') {
@@ -693,7 +682,7 @@ class MaskManager {
 
 
     window.addEventListener('keydown', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskmanager").classList.contains('active')) return;
 
       if (e.key == 'Escape') {
@@ -706,7 +695,7 @@ class MaskManager {
       };
     });
     document.addEventListener('mousedown', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskmanager").classList.contains('active')) return;
 
       if (e.target.classList.contains('rightpanel-btn3')) return;
@@ -750,13 +739,17 @@ class MaskManager {
       return;
     }
 
-    this.deselectMask()
+    // this.deselectMask();
+
+
+
     for (let i = 0; i < this.maskList.length; i++) {
       let mask = this.maskList[i];
       const item = document.createElement("div");
       item.className = "masklist-item";
       item.id = `maskitem-${mask.id}`
       item.innerHTML = `
+        <button class="mask-delete-btn" title="Delete"><i class="fa-solid fa-xmark"></i></button>
         <div class="masklist-thumbnail">
           <img src="${mask.thumbnail}" alt="${mask.name}" style="max-width:100%;max-height:100%;">
         </div>
@@ -830,16 +823,19 @@ class MaskManager {
   }
 
   async deleteMask() {
-    if (!this.selectedMask) return;
-    const result = await window.SIMULOBJET.confirmModal.open("Are you sure to delete selected Mask?");
+    if (!this.selectedMask) return;    
+    
+    const result = await window.SIMULOBJET.customModal.confirm(`Are you sure to delete selected Mask?`);
     if (result) {
       this.maskList = this.maskList.filter(obj => obj.id !== this.selectedMask);
       this.selectedMask = null;
       this.renderMaskList();
-      window.SIMULOBJET.processFlow.render();
+      
+      // window.SIMULOBJET.processFlow.render();
     } else {
-      return
+      return;
     }
+ 
   }
 
   copyMask() {
@@ -850,7 +846,8 @@ class MaskManager {
     this.maskList.push(copiedMask);
     this.selectedMask = copiedMask.id;
     this.renderMaskList();
-    window.SIMULOBJET.processFlow.render();
+
+    // window.SIMULOBJET.processFlow.render();
   }
 
   /* --------------------------------------------------
