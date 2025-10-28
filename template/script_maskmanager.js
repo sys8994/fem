@@ -83,8 +83,7 @@ class MaskEditor {
     this.initialized = false;
     this._initializeCanvas()
 
-    this.isEdited = false;
-    this._refreshEditStarStatus();
+    this._setEditStarStatus(false);
   }
 
   startBySelected(data, opts = {}) {
@@ -114,28 +113,19 @@ class MaskEditor {
     this.initialized = false;
     this._initializeCanvas()
     
-    this.isEdited = false;
-    this._refreshEditStarStatus();
+    this._setEditStarStatus(false);
   }
 
   async backToList() {
-    let isBackToList = false;
     if (this.isEdited) {
-      const result = await window.SIMULOBJET.confirmModal.open("Unsaved mask data will be lost. Continue?");
-      if (result) {
-        isBackToList = true;
-      } else {
-        return
-      }
-    } else {
-      isBackToList = true;
-    }
-    if (isBackToList) {
-      const masklistpanel = document.getElementById("maskeditor-main-maskmanager");
-      const maskeditorpanel = document.getElementById("maskeditor-main-maskeditor");
-      masklistpanel.classList.add('active');
-      maskeditorpanel.classList.remove('active');
-    }
+      const result = await window.SIMULOBJET.customModal.confirm(`Unsaved mask data will be lost. Continue?`);
+      if (!result) return
+    } 
+    const masklistpanel = document.getElementById("maskeditor-main-maskmanager");
+    const maskeditorpanel = document.getElementById("maskeditor-main-maskeditor");
+    masklistpanel.classList.add('active');
+    maskeditorpanel.classList.remove('active');
+    
   }
 
   saveData() {
@@ -196,18 +186,20 @@ class MaskEditor {
     }
 
     this.maskmanager.renderMaskList();
-    this.isEdited = false;
-    this._refreshEditStarStatus();
-    window.SIMULOBJET.processFlow.render();
+    
+    this._setEditStarStatus(false);
+    // window.SIMULOBJET.processFlow.render();
+
   }
 
   
   /* ================== Utils ================== */
 
 
-  _refreshEditStarStatus() {
+  _setEditStarStatus(typ) {
     const star = document.getElementById("maskeditor-star-edited");
-    if (this.isEdited) star.style.visibility = 'visible';
+    this.isEdited = typ;
+    if (typ) star.style.visibility = 'visible';
     else star.style.visibility = 'hidden';
   }
 
@@ -468,6 +460,7 @@ class MaskEditor {
       this.canvas.requestRenderAll();
       this.saveHistory();
       this._refreshSelectionUI();
+
       return true;
     }
 
@@ -544,7 +537,7 @@ class MaskEditor {
 
     if (obj.type === 'activeSelection') {
 
-      if (typ == 'scale') {
+      if (typ.startsWith('scale')) {
         const sel = obj;
   
         // 1) ActiveSelection → Group (사용자 변형이 그룹에 반영됨)
@@ -699,9 +692,8 @@ class MaskEditor {
     this.redoStack.push(state);
     const prev = this.undoStack[this.undoStack.length - 1];
     this._loadFromJSONString(prev);
-    if (this.undoStack.length <= 1) {
-      this.isEdited = false;
-      this._refreshEditStarStatus();
+    if (this.undoStack.length <= 1) {      
+      this._setEditStarStatus(false);
     }
   }
 
@@ -722,8 +714,7 @@ class MaskEditor {
     if (this.undoStack.length > this.historyMax) this.undoStack.shift();
     this.redoStack.length = 0;
 
-    this.isEdited = true;
-    this._refreshEditStarStatus();
+    this._setEditStarStatus(true);
     
   }
 
@@ -740,7 +731,7 @@ class MaskEditor {
   /* ===================== Keyboard ===================== */
   _bindKeyEvents() {
     document.addEventListener('keydown', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
 
       const meta = e.ctrlKey || e.metaKey;
@@ -794,7 +785,7 @@ class MaskEditor {
     });
 
     document.addEventListener('keyup', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
 
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
@@ -885,7 +876,7 @@ class MaskEditor {
 
 
     this.canvas.on('mouse:move', (e) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
 
       const pointer = this.canvas.getPointer(e.e);
@@ -961,7 +952,7 @@ class MaskEditor {
     });
 
     this.canvas.on('mouse:up', (opt) => {
-      if (window.SIMULOBJET.activePanel !== 'maskeditor-panel') return;
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
       if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
       this._isMouseMoving = false;
       if (!this._ctrlDragActive) return;
@@ -997,3 +988,13 @@ class MaskEditor {
         this._refreshSelectionUI();
       }
 
+      this._ctrlDragActive = false;
+      this._ctrlPointerOffset = { dx: 0, dy: 0 };
+      this._dragStartPointer = null;
+    });
+
+    this.canvas.on('mouse:wheel', (opt) => {
+      if (window.SIMULOBJET.projectManager.currentTab !== 'maskeditor-panel') return;
+      if (!document.getElementById("maskeditor-main-maskeditor").classList.contains('active')) return;
+      const delta = opt.e.deltaY;
+      let zoom = this.canvas.getZoom();
