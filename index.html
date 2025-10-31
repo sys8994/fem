@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIMULOB</title>
+  <title>LAYVUE</title>
   <link rel="stylesheet" href="template/style.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <!-- Three.js & OrbitControls -->
@@ -19,13 +19,13 @@
   <!-- ================================================================ Home Page ================================================================ -->
   <!-- =========================================================================================================================================== -->
 
-  <div id="project-manager-panel" class="panel active">
+  <div id="project-manager-panel" class="panel panel-scrollbar active">
     <div class="project-manager-container">
       <!-- Header -->
       <div class="project-manager-header">
-        <h1 class="title">SIMULOBJ</h1>
+        <h1 class="title">LAYVUE</h1>
         <p class="subtitle">Prototype. Simulate. Iterate.</p>
-        <p class="version-info">Ver.251021, Developed by Young-Sun Song</p>
+        <p class="version-info">Ver.251031: Minimum Variable Product, Developed by Young-Sun Song</p>
       </div>
 
       <!-- Project List -->
@@ -63,7 +63,7 @@
     <div class="top-bar" id="main-topbar-panel">
       <div class="top-bar-left">
         <button class="top-bar-leftbutton" id="project-go-home"><i class="fa-solid fa-bars"></i></button>
-        <span class="app-title">SIMULOBJ</span>
+        <span class="app-title">LAYVUE</span>
         <span class="project-title" id="project-name">New Project</span>
         <span id="project-star-edited" style="margin-left:5px; user-select: none; color: var(--text-secondary); visibility: hidden;">*</span>
       </div>
@@ -81,6 +81,7 @@
         <div class="tab" data-tab="maskeditor-panel">Mask Editor</div>
         <div class="tab" data-tab="materials-panel">Materials</div>
         <div class="tab" data-tab="simulation-panel">Simulation</div>
+        <div id="tlqkf"></div>
       </div>
       <!-- ================================================================ 1. Process Flow Tab ================================================================ -->
       <div id="processflow-panel" class="work-panel active">
@@ -231,6 +232,5 @@
   <script src="template/script_inspector.js"></script>
   <script src="template/script_maskeditor.js"></script>
   <script src="template/script_custommodal.js"></script>
-  <script src="template/script_util.js"></script>
 </body>
 </html>

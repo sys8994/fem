@@ -191,5 +191,5 @@ class CustomModalManager {
 
 /* --- 부팅 --- */
 window.addEventListener('DOMContentLoaded', () => {
-    window.SIMULOBJET.customModal = new CustomModalManager();
+    window.prj.customModal = new CustomModalManager();
 });

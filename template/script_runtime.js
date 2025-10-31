@@ -4,56 +4,56 @@ class GridRenderer {
         this.wrap = document.getElementById(containerId);
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x12161c);
-    
+
         const w = this.wrap.clientWidth || 800;
         const h = this.wrap.clientHeight || 600;
-    
+
         // --- 카메라 초기 생성만 (위치 설정은 따로) ---
         this.camera = new THREE.PerspectiveCamera(45, w / h, 1, 50000);
         this.camera.up.set(0, 0, 1);
-    
+
         // --- 렌더러 ---
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(w, h);
         this.wrap.innerHTML = '';
         this.wrap.appendChild(this.renderer.domElement);
-    
+
         // --- 컨트롤러 ---
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-    
+
         // --- 라이트 ---
         this.scene.add(new THREE.AmbientLight(0x7f7f7f));
         const dir = new THREE.DirectionalLight(0xffffff, 0.9);
         dir.position.set(800, 900, 1400);
         this.scene.add(dir);
-    
+
         // --- 그리드 및 기타 ---
         this.xyGrid = null;
         this.ground = null;
         this.inst = {};
         this.boxGeo = null;
         this.maxInstances = 0;
-    
+
         window.addEventListener('resize', () => this._onResize());
         this._animate();
-    
+
         // 🔹 카메라를 기본 위치로 세팅 (초기화)
         this.setDefaultCamera();
-      }
+    }
 
-      setDefaultCamera(grid = null) {
+    setDefaultCamera(grid = null) {
         // grid 정보가 있으면 중심을 계산해서 target 조정
         let cx = 0, cy = 0, cz = 100;
         if (grid) {
-          cx = (grid.xmin + grid.xmax) / 2 || 0;
-          cy = (grid.ymin + grid.ymax) / 2 || 0;
-          cz = grid.maxHeight ? grid.maxHeight() * 0.5 : 100;
+            cx = (grid.xmin + grid.xmax) / 2 || 0;
+            cy = (grid.ymin + grid.ymax) / 2 || 0;
+            cz = grid.maxHeight ? grid.maxHeight() * 0.5 : 100;
         }
-    
+
         this.camera.position.set(400, -400, 500);
         this.controls.target.set(cx, cy, cz);
         this.camera.lookAt(cx, cy, cz);
-      }
+    }
 
     _onResize() {
         const w = this.wrap.clientWidth || 800;
@@ -66,27 +66,27 @@ class GridRenderer {
     _setupDomainHelpers(grid) {
         if (this.ground) this.scene.remove(this.ground);
         if (this.xyGrid) this.scene.remove(this.xyGrid);
-    
+
         // 도메인 중심 계산
         const cx = grid.LXeff / 2;
         const cy = grid.LYeff / 2;
-    
+
         // 평면 및 격자 중심을 (0,0)에 정렬
         const planeGeo = new THREE.PlaneGeometry(grid.LXeff * 1.2, grid.LYeff * 1.2);
         this.ground = new THREE.Mesh(
-          planeGeo,
-          new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
+            planeGeo,
+            new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
         );
         this.ground.position.set(0, 0, 0);
         this.scene.add(this.ground);
-    
+
         const size = Math.max(grid.LXeff, grid.LYeff) * 1.2;
         const div = Math.max(grid.NX, grid.NY);
         this.xyGrid = new THREE.GridHelper(size, div, 0x3a3f45, 0x2a2f35);
         this.xyGrid.rotation.x = Math.PI / 2;
         this.xyGrid.position.set(0, 0, 0.05);
         this.scene.add(this.xyGrid);
-      }
+    }
 
     _ensureInstanced(grid, materialColor) {
         // 단위 큐브로 생성
@@ -110,48 +110,48 @@ class GridRenderer {
         if (!grid) return;
         this._setupDomainHelpers(grid);
         this._ensureInstanced(grid, materialColor);
-    
+
         // 인스턴스 배치 시에도 offset 적용 (구조 중심을 0,0으로 이동)
-    
+
         const dummy = new THREE.Object3D();
         const counts = {};
         for (const k of Object.keys(this.inst)) counts[k] = 0;
-    
-        for (let i = 0; i < grid.NX; i++) {
-          for (let j = 0; j < grid.NY; j++) {
-            const col = grid.getColumn(i, j);
-            let prev = 0;
-            for (const [m, zEnd] of col) {
-              const h = zEnd - prev;
-              if (h <= 0) { prev = zEnd; continue; }
-    
-              // 중심 보정 적용
-              dummy.position.set(grid.worldX(i), grid.worldY(j), prev + h / 2);
-              dummy.scale.set(grid.dx, grid.dy, h);
-              dummy.updateMatrix();
-    
-              if (this.inst[m]) {
-                this.inst[m].setMatrixAt(counts[m]++, dummy.matrix);
-              }
-              prev = zEnd;
-            }
-          }
-        }
-    
-        for (const k of Object.keys(this.inst)) {
-          this.inst[k].count = counts[k] || 0;
-          this.inst[k].instanceMatrix.needsUpdate = true;
-        }
-      }
 
-      _animate() {
+        for (let i = 0; i < grid.NX; i++) {
+            for (let j = 0; j < grid.NY; j++) {
+                const col = grid.getColumn(i, j);
+                let prev = 0;
+                for (const [m, prev, zEnd] of col) {
+                    const h = zEnd - prev;
+                    if (h <= 0) { prev = zEnd; continue; }
+
+                    // 중심 보정 적용
+                    dummy.position.set(grid.worldX(i), grid.worldY(j), prev + h / 2);
+                    dummy.scale.set(grid.dx, grid.dy, h);
+                    dummy.updateMatrix();
+
+                    if (this.inst[m]) {
+                        this.inst[m].setMatrixAt(counts[m]++, dummy.matrix);
+                    }
+                    //   prev = zEnd;
+                }
+            }
+        }
+
+        for (const k of Object.keys(this.inst)) {
+            this.inst[k].count = counts[k] || 0;
+            this.inst[k].instanceMatrix.needsUpdate = true;
+        }
+    }
+
+    _animate() {
         const loop = () => {
-          requestAnimationFrame(loop);
-          this.controls.update();
-          this.renderer.render(this.scene, this.camera);
+            requestAnimationFrame(loop);
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
         };
         loop();
-      }
+    }
 }
 
 // ===== 프로세스 실행기 =====
@@ -160,13 +160,23 @@ class ProcessRuntime {
         // 렌더러 준비
         this.renderer3D = new GridRenderer('viewer-container-process');
 
+
         // 기본 도메인(간단 버전): 필요시 ColumnGrid UI와 연결 예정
         this.domain = domain || { LX: 200, LY: 200, dx: 2, dy: 2 };
+        const { LX, LY, dx, dy } = this.domain;
+        this.grid = new window.prj.ColumnGrid(LX, LY, dx, dy);
+        this._gridCache = {};
+        this._aldCache = {};
+
+        this.oldUpto = null;
+        this.oldGrid = null;
+
 
         // 이벤트 수신
         window.addEventListener('simflow:changed', (ev) => {
             const snap = ev.detail;           // { processes, selectBarBoundId, arrowBoundId, ... }
-            this._rebuild(snap);
+            const opts = snap?.opts ? snap.opts : { typ: 'process', procId: null };
+            this._build(snap, opts);
         });
 
     }
@@ -185,7 +195,7 @@ class ProcessRuntime {
     _getMaskFun(maskid) {
         if (!maskid) return (x, y) => true;
         if (maskid == '-') return (x, y) => true;
-        const maskdata = window.SIMULOBJET.maskmanager.maskList.find(mask => mask.id === maskid);
+        const maskdata = window.prj.maskmanager.maskList.find(mask => mask.id === maskid);
         return (x, y) => this._isPointBlocked(x, y, maskdata.data);
         // if (!maskid) return (x, y) => true;
         // return (x, y) => this._isPointBlocked(x, y, maskid);
@@ -280,56 +290,184 @@ class ProcessRuntime {
         return inside;
     }
 
-    _applyStep(grid, step) {
+    _applyStep(grid, step, useProcCache = false) {
         let kind = (step.kind || '').toUpperCase();
-        if (kind == 'SUBSTR') kind = 'DEPO';
-        const mat = step.material || 'A';
+        const mat = step.material || null;
+
         const thk = Number(step.thickness || 0);
-        const eta = (typeof step.anisotropy === 'number') ? step.anisotropy : 0;
-        const rad = (typeof step.radius === 'number') ? step.radius : 0;
+        const conformality = (typeof step.conformality === 'number') ? step.conformality : 0;
         const maskfun = this._getMaskFun(step.mask)
-
-
 
         if (thk <= 0) return;
 
-        if (kind === 'DEPO') {
-            grid.deposit_partial(maskfun, mat, thk, eta);
-            // grid.deposit(maskfun, mat, thk, eta);
+        if (kind === 'SUBSTR') {
+            grid.deposit_general(maskfun, mat, thk, 0);
+        } else if (kind === 'DEPO') {
+            grid.deposit_general(maskfun, mat, thk, conformality);
+        } else if (kind === 'ALD') {
+            let opts = { isCache: false }
+            grid.deposit_ALD(maskfun, mat, thk, opts);
+
         } else if (kind === 'ETCH') {
-            grid.etch(maskfun, mat, thk, eta, { radius: rad });
+            grid.etch_general(maskfun, mat, thk, conformality);
+
+        } else if (kind === 'WETETCH') {
+            let opts = { isCache: false }
+            grid.etch_wet(maskfun, mat, thk, opts);
+
+        } else if (kind === 'STRIP') {
+            grid.strip_connected(mat);
         } else if (kind === 'CMP') {
             grid.cmp(thk, step.material);
         }
     }
 
-    _rebuild(snapshot) {
-        const { LX, LY, dx, dy } = this.domain;
-        const grid = new window.SIMULOBJET.ColumnGrid(LX, LY, dx, dy);
-
-        // arrow 이전까지만 적용
-        const processes = snapshot?.processes || [];
-        const gap = this._arrowGapIndex(processes, snapshot?.arrowBoundId);
-        const upto = processes.slice(0, gap);
-
-        for (const step of upto) {
-            this._applyStep(grid, step);
+    _createGridStepCache(nstep) {
+        const nMaxCache = 10;
+        while (Object.keys(this.gridCache).length >= nMaxCache) {
+            // 제거 대상 후보 key 목록 (keepKey 제외)
+            const candidates = Object.entries(this.gridCache)
+                .filter(([key]) => key !== keepKey)
+                .map(([key, [obj, num]]) => ({ key, num }));
+            if (candidates.length === 0) break; // 제거할 게 없음        
+            // num이 가장 작은 항목 찾기
+            const minItem = candidates.reduce((a, b) => (a.num < b.num ? a : b));
+            // 해당 항목 삭제
+            delete this.gridCache[minItem.key];
         }
 
+        // cache 생성
+        this.gridCache[nstep + 1] = [structuredClone(this.grid.cols), 0];
+    }
 
-        // 3D 갱신
-        this.renderer3D.updateFromGrid(grid, snapshot?.materialColor || {});
+    _build(snapshot, opts) {
 
+        const processes = snapshot?.processes || [];
+        const nSaveInterval = Math.max(3, Math.floor(processes.length / 10)); // sparse cache 조건: 3step 간격 이상, 최대 10개 까지
+        const nowIndex = this._arrowGapIndex(processes, snapshot?.arrowBoundId);
+        const upto = processes.slice(0, nowIndex);
+
+        for (let step of upto) {
+            const cardDiv = window.prj.processFlow.listEl.querySelector(`.processflow-card[data-id="${step.id}"]`);
+            if ((step.kind === 'NEW') || (['DEPO', 'ALD', 'ETCH', 'WETETCH', 'STRIP'].includes(step.kind) && ((step.material==='-') || (step.material === '')))) {
+                cardDiv.classList.add('card-invalid')
+            } else {
+                cardDiv.classList.remove('card-invalid')
+            }
+        }
+
+        this.gridCache = this.gridCache || {};
+        const changedProcIndex = this._arrowGapIndex(processes, opts.procId);
+        const lastCacheIndex = opts.typ === 'process' ? null
+            : opts.typ === 'explorer' ? Math.max(0, Math.max(...Object.keys(this.gridCache).map(Number).filter(k => k <= nowIndex)))
+                : Math.max(0, Math.max(...Object.keys(this.gridCache).map(Number).filter(k => k < changedProcIndex)));
+
+        if (opts.typ === 'process') { // 공정 추가/이동/제거 변화: cache 초기화            
+            this.gridCache = {};
+            this.gridCache[0] = [null, 0];
+            this.grid.cols = null;
+        } else { // 나머지: cache 로드            
+            this.grid.cols = structuredClone(this.gridCache[lastCacheIndex][0]);
+        }
+
+        if (this.grid.cols === null) this.grid.createNewGrid();
+       
+
+        if (opts.typ === 'process') {          
+
+            if (this._deepEqual(this.oldUpto, upto)) return;
+
+            let nStepSav = 0;
+            for (let nstep = 0; nstep < nowIndex; nstep += 1) {
+                let step = processes[nstep];
+                nStepSav += 1;
+                this._applyStep(this.grid, step, false);
+                if (nStepSav === nSaveInterval) {
+                    nStepSav = 0;
+                    this._createGridStepCache(nstep);
+                }
+            }
+
+        } else if (opts.typ === 'explorer') {
+
+            if (this._deepEqual(this.oldUpto, upto)) return;
+
+            for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
+                let step = processes[nstep];
+                this._applyStep(this.grid, step, false);
+            }
+
+            this.gridCache[lastCacheIndex][1] += 1;
+
+        } else if ((opts.typ === 'inspector') || (opts.typ == 'sliderup')) {
+
+            for (const k in this.gridCache) if (Number(k) > lastCacheIndex) delete this.gridCache[k];
+
+            let nStepSav = 0;
+            for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
+                let step = processes[nstep];
+                nStepSav += 1;
+                this._applyStep(this.grid, step, false);
+                if ((nstep === (changedProcIndex - 2)) || (nStepSav === nSaveInterval)) {
+                    nStepSav = 0;
+                    this._createGridStepCache(nstep);
+                }
+            }
+            if (this._deepEqual(this.oldUpto, upto)) return;
+            this.gridCache[lastCacheIndex][1] += 1;
+
+        } else if (opts.typ === 'sliderdown') {
+
+            for (const k in this.gridCache) if (Number(k) > lastCacheIndex) delete this.gridCache[k];
+
+            for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
+                let step = processes[nstep];
+                this._applyStep(this.grid, step, false);
+                if (nstep === (changedProcIndex - 2)) {
+                    this._createGridStepCache(nstep);
+                }
+            }
+
+            if (this._deepEqual(this.oldUpto, upto)) return;
+
+        } else if (opts.typ === 'slidermove') {
+
+            for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
+                let step = processes[nstep];
+                this._applyStep(this.grid, step, true);
+            }
+
+        }
+
+        this.oldUpto = upto;
+        this.renderer3D.updateFromGrid(this.grid, snapshot?.materialColor || {});
+
+    }
+
+
+    _deepEqual(a, b) {
+        if (a === b) return true;
+        if (typeof a !== "object" || typeof b !== "object" || a === null || b === null)
+            return false;
+
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) return false;
+
+        for (const key of keysA) {
+            if (!keysB.includes(key)) return false;
+            if (!this._deepEqual(a[key], b[key])) return false;
+        }
+        return true;
     }
 }
 
 // 부팅
 window.addEventListener('DOMContentLoaded', () => {
     const runtime = new ProcessRuntime();
-    window.SIMULOBJET.processRuntime = runtime;   // 👈 전역 포인터
-    const f = window.SIMULOBJET?.processFlow;
+    window.prj.processRuntime = runtime;   // 👈 전역 포인터
+    const f = window.prj?.processFlow;
     f && window.dispatchEvent(new CustomEvent('simflow:changed', { detail: f._snapshot() }));
 });
-
 
 

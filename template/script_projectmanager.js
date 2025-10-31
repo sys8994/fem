@@ -34,7 +34,7 @@ class ProjectManager {
 
         // tab click bind events
         const tabs = document.querySelectorAll('.tab');
-        window.SIMULOBJET.activePanel = 'processflow-panel';
+        window.prj.activePanel = 'processflow-panel';
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 this.switchTab(tab.dataset.tab);
@@ -92,7 +92,7 @@ class ProjectManager {
             const deleteBtn = card.querySelector('.project-upperbtn-delete');
             deleteBtn.onclick = (e) => {
                 e.stopPropagation(); // 카드 클릭 이벤트 차단
-                window.SIMULOBJET.customModal.confirm(`Are you sure to delete "${p.name}"?`).then( ok => {
+                window.prj.customModal.confirm(`Are you sure to delete "${p.name}"?`).then( ok => {
                     if (ok) this.deleteProject(idx);
                 });
             };
@@ -102,7 +102,7 @@ class ProjectManager {
             copyBtn.onclick = (e) => {
                 e.stopPropagation(); // 카드 클릭 이벤트 차단
                 const oldName = p.name+'_copied';
-                window.SIMULOBJET.customModal.prompt(`Enter copied project name:`, oldName).then( newName => {
+                window.prj.customModal.prompt(`Enter copied project name:`, oldName).then( newName => {
                     if (newName) this.copyProject(idx,newName);
                 });
             };
@@ -140,9 +140,9 @@ class ProjectManager {
     // ==============================
     async renameProject() {        
         const oldName = this.projectName.innerText;
-        const newName = await window.SIMULOBJET.customModal.prompt(`Enter new project name:`, oldName);
+        const newName = await window.prj.customModal.prompt(`Enter new project name:`, oldName);
         if (!newName) return;
-        window.SIMULOBJET.processFlow._commitHistory();
+        window.prj.processFlow._commitHistory();
         this.projectName.innerText = newName;
         
     }
@@ -151,7 +151,7 @@ class ProjectManager {
         let dataURL;
         if (typ == 'saveas') { 
             const oldName = this.projectName.innerText + '_copy';
-            const newName = await window.SIMULOBJET.customModal.prompt(`Enter copied project name:`, oldName);
+            const newName = await window.prj.customModal.prompt(`Enter copied project name:`, oldName);
             if (!newName) return;
             this.projectName.innerText = newName;
         } 
@@ -161,7 +161,7 @@ class ProjectManager {
       
 
       _save3DStructure() {
-        const runtime = window.SIMULOBJET?.processRuntime;
+        const runtime = window.prj?.processRuntime;
         const renderer3D = runtime?.renderer3D;
         const scene = renderer3D?.scene;
       
@@ -209,19 +209,19 @@ class ProjectManager {
                 created: new Date().toLocaleString(),
                 modified: new Date().toLocaleString(),
                 author: 'ysun1.song',
-                snapshot: window.SIMULOBJET.processFlow._snapshot(),
-                process: window.SIMULOBJET?.processFlow?.processes || [],
-                mask: window.SIMULOBJET?.maskmanager?.maskList || [],
+                snapshot: window.prj.processFlow._snapshot(),
+                process: window.prj?.processFlow?.processes || [],
+                mask: window.prj?.maskmanager?.maskList || [],
                 thumbnail: thumbnail || null,
             };
         } else {
             prj = this.loadedProject;
             prj.name = this.projectName.innerText;
             prj.modified = new Date().toLocaleString();
-            prj.process = window.SIMULOBJET?.processFlow?.processes || [];
-            prj.mask = window.SIMULOBJET?.maskmanager?.maskList || [];
+            prj.process = window.prj?.processFlow?.processes || [];
+            prj.mask = window.prj?.maskmanager?.maskList || [];
             prj.thumbnail = thumbnail;
-            prj.snapshot= window.SIMULOBJET.processFlow._snapshot();
+            prj.snapshot= window.prj.processFlow._snapshot();
         }
         this.loadProjectList();
 
@@ -233,7 +233,7 @@ class ProjectManager {
           }        
         this.saveProjectList();
         this.loadedProject = prj;
-        window.SIMULOBJET.customModal.alert("Project saved!").then(() => {
+        window.prj.customModal.alert("Project saved!").then(() => {
             this.renderProjectList();
         });
         this._setEditStarStatus(false);
@@ -256,11 +256,10 @@ class ProjectManager {
         this.managerPanel.classList.add('hidden');
         this.mainPanel.classList.remove('hidden');
         
-        // window.SIMULOBJET.processFlow.initiate(prj.process);
-        window.SIMULOBJET.maskmanager.maskList = prj.mask;
-        window.SIMULOBJET.maskmanager.renderMaskList();
-        
-        window.SIMULOBJET.processFlow.initiate(prj.snapshot); 
+        window.prj.maskmanager.maskList = prj.mask;
+        window.prj.maskmanager.renderMaskList();        
+        window.prj.processFlow.initiate(prj.snapshot); 
+        window.prj.processRuntime.renderer3D.setDefaultCamera();
         this.switchTab(this.currentTab);
         this._setEditStarStatus(false);
 
@@ -272,11 +271,13 @@ class ProjectManager {
         this.mainPanel.classList.remove('hidden');
 
         
-        window.SIMULOBJET.maskmanager.maskList = [];
-
-        window.SIMULOBJET.processFlow.initiate(null);
+        window.prj.maskmanager.maskList = [];
+        window.prj.maskmanager.renderMaskList();
+        window.prj.processFlow.initiate(null);
+        window.prj.processRuntime.renderer3D.setDefaultCamera();
         this.switchTab(this.currentTab);
         this._setEditStarStatus(false);
+
         
     }
 
@@ -286,7 +287,7 @@ class ProjectManager {
     async goHome() {
 
         if (this.isEdited) {
-            const result = await window.SIMULOBJET.customModal.confirm(`Unsaved project data will be lost. Continue?`);
+            const result = await window.prj.customModal.confirm(`Unsaved project data will be lost. Continue?`);
             if (!result) return;
         } 
 
@@ -316,15 +317,10 @@ class ProjectManager {
         this.currentTab = tabId;
 
         if (tabId == 'processflow-panel') {
-            window.SIMULOBJET.processFlow.render();
-            window.SIMULOBJET.processRuntime.renderer3D._onResize();
+            window.prj.processFlow.render();
+            window.prj.processRuntime.renderer3D._onResize();
         }
-
     }
-
-
-
-
 }
 
 
@@ -339,6 +335,6 @@ class ProjectManager {
 
 /* --- 부팅 --- */
 window.addEventListener('DOMContentLoaded', () => {
-    window.SIMULOBJET = window.SIMULOBJET || {};
-    window.SIMULOBJET.projectManager = new ProjectManager();
+    window.prj = window.prj || {};
+    window.prj.projectManager = new ProjectManager();
 });

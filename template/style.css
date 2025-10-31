@@ -2,6 +2,7 @@
     --bg-darker: #0d1117;
     --bg-dark: #161b22;
     --bg-panel: #21262d;
+    --bg-panel-invalid: #5d4c3b;
     --bg-card: #36414f;
     --border-color: #30363d;
     --border-color-focus: #888f96;
@@ -24,6 +25,7 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    user-select: none;
 }
 
 
@@ -1000,6 +1002,12 @@ label {
     opacity: .7;
     /* filter: grayscale(40%); */
 }
+
+.card-invalid {
+    background: var(--bg-panel-invalid) !important;
+}
+
+
 
 /* one-line ellipsis for labels */
 .proc-label1,
