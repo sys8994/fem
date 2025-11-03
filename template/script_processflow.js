@@ -3,7 +3,7 @@
 class ProcessFlow {
   constructor() {
     this.listEl = document.getElementById('processflow-card-list'),
-    this.addBtn = document.getElementById('processflow-add-btn')
+      this.addBtn = document.getElementById('processflow-add-btn')
     this.prj = window.prj.projectManager;
 
     // 상태
@@ -16,8 +16,12 @@ class ProcessFlow {
     this.pastZoneEl = null;
 
     // 재질 팔레트(요청 사항)
-    this.kindIcon = { SUBSTR: '⬜', DEPO: '🧱', ALD:'🧩', ETCH: '⛏️', WETETCH: '⛏️', CMP: '🧽', STRIP: '🧹' };
-    this.materialColor = { Si: 'rgb(220, 220, 216)', Ox: 'rgb(160, 230, 196)', Nit: 'rgb(240, 240, 110)' };
+    this.kindIcon = { SUBSTR: '⬜', DEPO: '🧱', ALD: '🧩', ETCH: '⛏️', WETETCH: '⛏️', CMP: '🧽', STRIP: '🧹' };
+    this.materialColor = {
+      Si: { color: 'rgb(220, 220, 216)', id: 3 },
+      Ox: { color: 'rgb(160, 230, 196)', id: 4 },
+      Nit: { color: 'rgb(240, 240, 110)', id: 5 }
+    };
 
     // select bar / arrow 바인딩
     // - selectBarBoundId: “직전 카드 id” 개념(카드 사이의 gap 위치를 id로 표현)
@@ -180,12 +184,12 @@ class ProcessFlow {
         const cur = this.arrowCardIndex;   // -1 ~ n-1
         if (cur > 0) {                       // 위로 (한 칸 이전 카드)
           this._commitHistory();
-          this.arrowBoundId = this.processes[cur - 1].id;          
-          this.render({typ:'explorer',procId:''});
+          this.arrowBoundId = this.processes[cur - 1].id;
+          this.render({ typ: 'explorer', procId: '' });
         } else if (cur === 0) {              // 첫 카드에서 위 → 아무 것도 선택 안 함
           this._commitHistory();
           this.arrowBoundId = null;
-          this.render({typ:'explorer',procId:''});
+          this.render({ typ: 'explorer', procId: '' });
         }
       }
       if (e.key === 'ArrowDown') {
@@ -194,12 +198,12 @@ class ProcessFlow {
         if (cur < this.processes.length - 1) {
           this._commitHistory();
           this.arrowBoundId = this.processes[cur + 1].id;
-          this.render({typ:'explorer',procId:''});
+          this.render({ typ: 'explorer', procId: '' });
         } else if (cur === -1 && this.processes.length > 0) {
           // 현재 arrow가 없으면 첫 카드로 이동
           this._commitHistory();
           this.arrowBoundId = this.processes[0].id;
-          this.render({typ:'explorer',procId:''});
+          this.render({ typ: 'explorer', procId: '' });
         }
       }
 
@@ -265,11 +269,11 @@ class ProcessFlow {
     // 런타임 갱신 이벤트(색 정보 포함)
     let detail = this._snapshot();
     if (opts) {
-      detail.opts = opts;      
+      detail.opts = opts;
     }
     window.dispatchEvent(new CustomEvent('simflow:changed', { detail: detail }));
-    
-    
+
+
 
   }
 
@@ -326,7 +330,7 @@ class ProcessFlow {
       e.stopPropagation();
       this._commitHistory();
       this.arrowBoundId = proc.id;    // “이 카드까지”      
-      this.render({typ:'explorer',procId:''});
+      this.render({ typ: 'explorer', procId: '' });
     });
     railCell.appendChild(dot);
     row.appendChild(railCell);
@@ -355,7 +359,7 @@ class ProcessFlow {
       else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
     }
     if (proc.mask && proc.mask !== '-') {
-      const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;        
+      const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
       metaHtml += `| ${maskname} `;
     }
     if (proc.thickness && proc.thickness !== '-') {
@@ -394,7 +398,7 @@ class ProcessFlow {
         if (this.selectedIds.has(id)) {
           this.selectedIds.clear();
         } else {
-          this.selectedIds.clear(); 
+          this.selectedIds.clear();
           this.selectedIds.add(id);
         }
       }
