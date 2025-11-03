@@ -198,7 +198,8 @@ class Inspector {
           const mat = await window.prj.customModal.material("Please select material name and color:");
           if (!mat) return;          
           this.flow._commitHistory();
-          this.flow.materialColor[mat.name] = mat.color || "#cccccc";
+          const newId = Math.max(...this.materialColor.map(b=>b.Id))+1;
+          this.flow.materialColor[mat.name] = {color:mat.color || "#cccccc", id:newId};
           proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
           this._rebuildPanelInPlaceAll() // 물질 추가할 경우, 모든 열려있는 inspector 내용을 업데이트
@@ -219,16 +220,15 @@ class Inspector {
       label:"Stopper",
       items:["-",...mats],
       current:proc.material || "",
-      onSelect:(val) => {
+      onSelect: async (val) => {
         if (val === "+Add") {
-          const nm = prompt("새 물질 이름?");
-          if (!nm) return;
-          const cl = prompt("색상(CSS color / #RRGGBB / rgb())", "#cccccc");
-          if (!cl) return;
+          const mat = await window.prj.customModal.material("Please select material name and color:");
+          if (!mat) return;         
           
           this.flow._commitHistory();
-          this.flow.materialColor[nm] = cl || "#cccccc";
-          proc.material = nm;
+          const newId = Math.max(...this.materialColor.map(b=>b.Id))+1;
+          this.flow.materialColor[mat.name] = {color:mat.color || "#cccccc", id:newId};
+          proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
           this._rebuildPanelInPlaceAll() // 물질 추가할 경우, 모든 열려있는 inspector 내용을 업데이트
         } else {
@@ -362,7 +362,7 @@ class Inspector {
     if (meta) {
       let metaHtml = '';
       if ((proc.material) && (proc.material !== '-')) {
-        const clr = this.flow.materialColor[proc.material] || '#ccc';
+        const clr = this.flow.materialColor[proc.material]?.color || '#ccc';
         if (proc.kind == 'CMP') metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
         else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
       }
@@ -473,7 +473,7 @@ class Inspector {
         if (this.flow.materialColor[item]) {
           const dot = document.createElement('span');
           dot.className = 'color-dot';
-          dot.style.background = this.flow.materialColor[item] || '#aaa';
+          dot.style.background = this.flow.materialColor[item]?.color || '#aaa';
           opt.appendChild(dot);
         }
       } else if (headerType === 'icon') {
@@ -545,7 +545,7 @@ class Inspector {
     // 내용 재구성 (텍스트만 바꿈, 화살표 span은 유지)
     if (value && value !== '(select)') {
       if ((headerType === 'color') && this.flow.materialColor[value]) {
-        textSpan.innerHTML = `<span class="color-dot" style="display:inline-block; vertical-align:middle; margin-right:8px; background:${this.flow.materialColor[value] || '#aaa'}"></span>${value}`;
+        textSpan.innerHTML = `<span class="color-dot" style="display:inline-block; vertical-align:middle; margin-right:8px; background:${this.flow.materialColor[value]?.color || '#aaa'}"></span>${value}`;
       } else if (headerType === 'icon') {
         const icon = this.kindIcon[value] || '';
         textSpan.innerHTML = `<span class="insp-kind-icon" style="display:inline-block; margin-right:6px;">${icon}</span>${value}`;
