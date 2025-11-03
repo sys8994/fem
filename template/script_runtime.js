@@ -97,7 +97,7 @@ class GridRenderer {
         this.maxInstances = grid.NX * grid.NY * 16;
 
         for (const [matKey, colorStr] of Object.entries(materialColor || {})) {
-            const color = new THREE.Color(colorStr);
+            const color = new THREE.Color(colorStr.color);
             const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 1 });
             const im = new THREE.InstancedMesh(this.boxGeo, mat, this.maxInstances);
             this.inst[matKey] = im;
@@ -126,7 +126,7 @@ class GridRenderer {
                     if (h <= 0) { prev = zEnd; continue; }
 
                     // 중심 보정 적용
-                    dummy.position.set(grid.worldX(i), grid.worldY(j), prev + h / 2);
+                    dummy.position.set(grid.offsetX+i*grid.dx, grid.offsetY+j*grid.dy, prev + h / 2);
                     dummy.scale.set(grid.dx, grid.dy, h);
                     dummy.updateMatrix();
 
@@ -292,6 +292,7 @@ class ProcessRuntime {
 
     _applyStep(grid, step, useProcCache = false) {
         let kind = (step.kind || '').toUpperCase();
+        // const mat = window.prj.processFlow.materialColor[step.material].id || null;
         const mat = step.material || null;
 
         const thk = Number(step.thickness || 0);
@@ -469,5 +470,4 @@ window.addEventListener('DOMContentLoaded', () => {
     const f = window.prj?.processFlow;
     f && window.dispatchEvent(new CustomEvent('simflow:changed', { detail: f._snapshot() }));
 });
-
 
