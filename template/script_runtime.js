@@ -8,7 +8,7 @@ class GridRenderer {
         const w = this.wrap.clientWidth || 800;
         const h = this.wrap.clientHeight || 600;
 
-        // --- 카메라 초기 생성만 (위치 설정은 따로) ---
+        // --- 카메라 ---
         this.camera = new THREE.PerspectiveCamera(45, w / h, 1, 50000);
         this.camera.up.set(0, 0, 1);
 
@@ -21,13 +21,32 @@ class GridRenderer {
         // --- 컨트롤러 ---
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
 
-        // --- 라이트 ---
-        this.scene.add(new THREE.AmbientLight(0x7f7f7f));
-        const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-        dir.position.set(800, 900, 1400);
-        this.scene.add(dir);
+        // ============================================================
+        // 🔹 조명 세팅 (그림자 없이 깊이감 확보)
+        // ============================================================
 
-        // --- 그리드 및 기타 ---
+        // 약한 전역광 (기본 톤)
+        const ambient = new THREE.AmbientLight(0x404040, 0.7);
+        // (회색톤, intensity=0.4)
+        this.scene.add(ambient);
+
+        // 위-아래 자연광 (하늘빛 약하게)
+        const hemi = new THREE.HemisphereLight(0xddddff, 0x222233, 0.5);
+        hemi.position.set(0, 0, 1000);
+        this.scene.add(hemi);
+
+        // 메인 방향광 (부드러운 빛)
+        const dir1 = new THREE.DirectionalLight(0xffffff, 0.65);
+        dir1.position.set(800, -600, 1200);
+        this.scene.add(dir1);
+
+        // 보조 방향광 (살짝만)
+        const dir2 = new THREE.DirectionalLight(0xffffff, 0.15);
+        dir2.position.set(-600, 800, 800);
+        this.scene.add(dir2);
+        // ============================================================
+
+        // --- 기타 초기화 ---
         this.xyGrid = null;
         this.ground = null;
         this.inst = {};
@@ -37,7 +56,7 @@ class GridRenderer {
         window.addEventListener('resize', () => this._onResize());
         this._animate();
 
-        // 🔹 카메라를 기본 위치로 세팅 (초기화)
+        // 카메라 초기 위치
         this.setDefaultCamera();
     }
 
@@ -100,7 +119,7 @@ class GridRenderer {
             const color = new THREE.Color(colorStr.color);
             const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 1 });
             const im = new THREE.InstancedMesh(this.boxGeo, mat, this.maxInstances);
-            this.inst[matKey] = im;
+            this.inst[colorStr.id] = im;
             this.scene.add(im);
         }
     }
@@ -108,41 +127,58 @@ class GridRenderer {
 
     updateFromGrid(grid, materialColor) {
         if (!grid) return;
+
         this._setupDomainHelpers(grid);
         this._ensureInstanced(grid, materialColor);
-
-        // 인스턴스 배치 시에도 offset 적용 (구조 중심을 0,0으로 이동)
 
         const dummy = new THREE.Object3D();
         const counts = {};
         for (const k of Object.keys(this.inst)) counts[k] = 0;
 
-        for (let i = 0; i < grid.NX; i++) {
-            for (let j = 0; j < grid.NY; j++) {
-                const col = grid.getColumn(i, j);
-                let prev = 0;
-                for (const [m, prev, zEnd] of col) {
-                    const h = zEnd - prev;
-                    if (h <= 0) { prev = zEnd; continue; }
+        const { NX, NY, dx, dy, offsetX, offsetY } = grid;
+        const { mat, zpair, len } = grid.cols;
+        const Lmax = grid.Lmax;
 
-                    // 중심 보정 적용
-                    dummy.position.set(grid.offsetX+i*grid.dx, grid.offsetY+j*grid.dy, prev + h / 2);
-                    dummy.scale.set(grid.dx, grid.dy, h);
+        // === grid iteration ===
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                const layers = len[cidx];
+                if (layers === 0) continue;
+
+                const base = cidx * Lmax;
+                for (let k = 0; k < layers; k++) {
+                    const midx = mat[base + k];
+                    if (midx === 0) continue; // 0=empty
+
+                    const zBase = (base + k) * 2;
+                    const z0 = grid._dequantizeZ(zpair[zBase]);
+                    const z1 = grid._dequantizeZ(zpair[zBase + 1]);
+                    const h = z1 - z0;
+                    if (h <= 0) continue;
+
+                    // 중심 좌표 계산 (offset 보정)
+                    dummy.position.set(offsetX + i * dx, offsetY + j * dy, z0 + h / 2);
+                    dummy.scale.set(dx, dy, h);
                     dummy.updateMatrix();
 
-                    if (this.inst[m]) {
-                        this.inst[m].setMatrixAt(counts[m]++, dummy.matrix);
+                    const key = midx;
+                    if (this.inst[key]) {
+                        this.inst[key].setMatrixAt(counts[key]++, dummy.matrix);
                     }
-                    //   prev = zEnd;
                 }
             }
         }
 
+        // === instance 업데이트 ===
         for (const k of Object.keys(this.inst)) {
             this.inst[k].count = counts[k] || 0;
             this.inst[k].instanceMatrix.needsUpdate = true;
         }
     }
+
+
+
 
     _animate() {
         const loop = () => {
@@ -159,6 +195,8 @@ class ProcessRuntime {
     constructor(domain) {
         // 렌더러 준비
         this.renderer3D = new GridRenderer('viewer-container-process');
+
+
 
 
         // 기본 도메인(간단 버전): 필요시 ColumnGrid UI와 연결 예정
@@ -291,15 +329,20 @@ class ProcessRuntime {
     }
 
     _applyStep(grid, step, useProcCache = false) {
+
+        if ((step.kind === 'NEW') || (['DEPO', 'ALD', 'ETCH', 'WETETCH', 'STRIP'].includes(step.kind) && ((step.material === '-') || (step.material === '')))) return;
+
         let kind = (step.kind || '').toUpperCase();
-        // const mat = window.prj.processFlow.materialColor[step.material].id || null;
-        const mat = step.material || null;
+
+        const mat = step.material == 'ALL' ? 255 :
+            step.material == '' ? 0 : window.prj.processFlow.materialColor[step.material].id || null;
 
         const thk = Number(step.thickness || 0);
         const conformality = (typeof step.conformality === 'number') ? step.conformality : 0;
         const maskfun = this._getMaskFun(step.mask)
 
         if (thk <= 0) return;
+
 
         if (kind === 'SUBSTR') {
             grid.deposit_general(maskfun, mat, thk, 0);
@@ -325,20 +368,20 @@ class ProcessRuntime {
 
     _createGridStepCache(nstep) {
         const nMaxCache = 10;
-        while (Object.keys(this.gridCache).length >= nMaxCache) {
+        while (Object.keys(this.grid.colsCache).length >= nMaxCache) {
             // 제거 대상 후보 key 목록 (keepKey 제외)
-            const candidates = Object.entries(this.gridCache)
+            const candidates = Object.entries(this.grid.colsCache)
                 .filter(([key]) => key !== keepKey)
                 .map(([key, [obj, num]]) => ({ key, num }));
             if (candidates.length === 0) break; // 제거할 게 없음        
             // num이 가장 작은 항목 찾기
             const minItem = candidates.reduce((a, b) => (a.num < b.num ? a : b));
             // 해당 항목 삭제
-            delete this.gridCache[minItem.key];
+            delete this.grid.colsCache[minItem.key];
         }
 
         // cache 생성
-        this.gridCache[nstep + 1] = [structuredClone(this.grid.cols), 0];
+        this.grid.colsCache[nstep + 1] = [structuredClone(this.grid.cols), 0];
     }
 
     _build(snapshot, opts) {
@@ -350,31 +393,34 @@ class ProcessRuntime {
 
         for (let step of upto) {
             const cardDiv = window.prj.processFlow.listEl.querySelector(`.processflow-card[data-id="${step.id}"]`);
-            if ((step.kind === 'NEW') || (['DEPO', 'ALD', 'ETCH', 'WETETCH', 'STRIP'].includes(step.kind) && ((step.material==='-') || (step.material === '')))) {
+            if ((step.kind === 'NEW') || (['DEPO', 'ALD', 'ETCH', 'WETETCH', 'STRIP'].includes(step.kind) && ((step.material === '-') || (step.material === '')))) {
                 cardDiv.classList.add('card-invalid')
             } else {
                 cardDiv.classList.remove('card-invalid')
             }
         }
 
-        this.gridCache = this.gridCache || {};
+
+
+        this.grid.colsCache = this.grid.colsCache || {};
         const changedProcIndex = this._arrowGapIndex(processes, opts.procId);
-        const lastCacheIndex = opts.typ === 'process' ? null
-            : opts.typ === 'explorer' ? Math.max(0, Math.max(...Object.keys(this.gridCache).map(Number).filter(k => k <= nowIndex)))
-                : Math.max(0, Math.max(...Object.keys(this.gridCache).map(Number).filter(k => k < changedProcIndex)));
+        const lastCacheIndex = opts.typ === 'process' ? null :
+            opts.typ === 'explorer' ? Math.max(0, Math.max(...Object.keys(this.grid.colsCache).map(Number).filter(k => k <= nowIndex))) :
+                Math.max(0, Math.max(...Object.keys(this.grid.colsCache).map(Number).filter(k => k < changedProcIndex)));
 
         if (opts.typ === 'process') { // 공정 추가/이동/제거 변화: cache 초기화            
-            this.gridCache = {};
-            this.gridCache[0] = [null, 0];
-            this.grid.cols = null;
+            this.grid.initializeCache();
+            this.grid.createNewGrid();
         } else { // 나머지: cache 로드            
-            this.grid.cols = structuredClone(this.gridCache[lastCacheIndex][0]);
+            this.grid.loadCache(lastCacheIndex);
+
+            // this.grid.cols = structuredClone(this.grid.colsCache[lastCacheIndex][0]);
         }
 
-        if (this.grid.cols === null) this.grid.createNewGrid();
-       
+        // if (this.grid.cols === null) this.grid.clearAll();
 
-        if (opts.typ === 'process') {          
+
+        if (opts.typ === 'process') {
 
             if (this._deepEqual(this.oldUpto, upto)) return;
 
@@ -398,11 +444,11 @@ class ProcessRuntime {
                 this._applyStep(this.grid, step, false);
             }
 
-            this.gridCache[lastCacheIndex][1] += 1;
+            this.grid.colsCache[lastCacheIndex][1] += 1;
 
         } else if ((opts.typ === 'inspector') || (opts.typ == 'sliderup')) {
 
-            for (const k in this.gridCache) if (Number(k) > lastCacheIndex) delete this.gridCache[k];
+            for (const k in this.grid.colsCache) if (Number(k) > lastCacheIndex) delete this.grid.colsCache[k];
 
             let nStepSav = 0;
             for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
@@ -415,11 +461,11 @@ class ProcessRuntime {
                 }
             }
             if (this._deepEqual(this.oldUpto, upto)) return;
-            this.gridCache[lastCacheIndex][1] += 1;
+            this.grid.colsCache[lastCacheIndex][1] += 1;
 
         } else if (opts.typ === 'sliderdown') {
 
-            for (const k in this.gridCache) if (Number(k) > lastCacheIndex) delete this.gridCache[k];
+            for (const k in this.grid.colsCache) if (Number(k) > lastCacheIndex) delete this.grid.colsCache[k];
 
             for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
                 let step = processes[nstep];
