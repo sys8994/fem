@@ -17,7 +17,7 @@ class ProcessFlow {
 
     // 재질 팔레트(요청 사항)
     this.kindIcon = { SUBSTR: '⬜', DEPO: '🧱', ALD: '🧩', ETCH: '⛏️', WETETCH: '⛏️', CMP: '🧽', STRIP: '🧹' };
-    this.materialColor = {
+    this.materialColor = { // Default : 0, Air : 1, air cavity : 2, ALL : 255
       Si: { color: 'rgb(220, 220, 216)', id: 3 },
       Ox: { color: 'rgb(160, 230, 196)', id: 4 },
       Nit: { color: 'rgb(240, 240, 110)', id: 5 }
@@ -354,7 +354,7 @@ class ProcessFlow {
     meta.className = 'proc-meta oneline';
     let metaHtml = '';
     if ((proc.material) && (proc.material !== '-')) {
-      const clr = this.materialColor[proc.material] || '#ccc';
+      const clr = this.materialColor[proc.material]?.color || '#ccc';
       if (proc.kind == 'CMP') metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
       else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
     }
