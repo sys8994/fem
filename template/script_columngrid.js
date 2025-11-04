@@ -1,154 +1,633 @@
-/* ===================== ColumnGrid ===================== */
+/* ===========================================================
+   ColumnGrid
+   - 전역 SoA 구조 기반 (Global Struct of Arrays)
+   - z0/z1 interleaved (zpair) 구조
+   - Float16 quantization (nm-scale)
+   - len: Uint8 (최대 255층)
+   - mat: Uint8 (0=empty, 1=air, 2=cavity, 3~ material)
+   - mat=255 → ALL 처리용 예약값
+   - colsCache 지원 (deep copy)
+   =========================================================== */
+
 class ColumnGrid {
-    constructor(LXnm, LYnm, dx, dy) {
-        this.setDomain(LXnm, LYnm, dx, dy);
-        this.cols = [];
+    /**
+     * @param {number} LXnm - 전체 X 길이 (nm)
+     * @param {number} LYNm - 전체 Y 길이 (nm)
+     * @param {number} dx   - X 방향 cell pitch (nm)
+     * @param {number} dy   - Y 방향 cell pitch (nm)
+     * @param {number} LmaxInit - 초기 column 최대 layer 수 (default=32, 2^n)
+     * @param {number} zScale - z quantization 스케일 (nm/step), default=0.1
+     */
+    constructor(LXnm, LYNm, dx, dy, LmaxInit = 32, zScale = 0.1) {
+        // ===== 도메인 설정 =====
+        this.setDomain(LXnm, LYNm, dx, dy);
+
+        // ===== Layer 구조 파라미터 =====
+        this.Lmax = this._nextPowerOf2(LmaxInit); // 항상 2^n
+        this.expandStep = 16;              // 확장 시 +16
+        this.zScale = zScale;                     // nm per quantized step
+
+        // ===== grid 데이터 구조 =====
+        this.cols = {};      // { mat, zpair, len }
+        this.colsCache = {}; // { id: { mat,zpair,len } }
+
+        // ===== 초기화 =====
         this.createNewGrid();
     }
 
-    createNewGrid() {
-        this.cols = new Array(this.NX);
-        for (let i = 0; i < this.NX; i++) {
-            this.cols[i] = new Array(this.NY);
-            for (let j = 0; j < this.NY; j++) {
-                this.cols[i][j] = []; // 초기 스택
-            }
-        }
+    createNewGrid(LmaxInit = this.Lmax) {
+        this.Lmax = this._nextPowerOf2(LmaxInit);
+        this._allocBuffers();  // 전체 SoA 버퍼 새로 생성
     }
 
-    getColumn(i, j) { 
-        return this.cols[i][j];
-    }
-    
+
+    /* ===========================================================
+       도메인 및 해상도
+       =========================================================== */
     setDomain(LXnm, LYNm, dx, dy) {
-        this.dx = Number(dx); this.dy = Number(dy);
+        this.dx = Number(dx);
+        this.dy = Number(dy);
         this.NX = Math.max(1, Math.round(Number(LXnm) / this.dx));
         this.NY = Math.max(1, Math.round(Number(LYNm) / this.dy));
-        this.offsetX = - (this.NX - 1) * this.dx / 2;
-        this.offsetY = - (this.NY - 1) * this.dy / 2;
+        this.Ncols = this.NX * this.NY;
+
+        this.offsetX = -(this.NX - 1) * this.dx / 2;
+        this.offsetY = -(this.NY - 1) * this.dy / 2;
         this.LXeff = this.NX * this.dx;
         this.LYeff = this.NY * this.dy;
     }
 
+    /* ===========================================================
+       버퍼 할당 (64B 정렬 + interleaved 구조)
+       =========================================================== */
+    _allocBuffers() {
+        const N = this.Ncols;
+        const L = this.Lmax;
+        const numSeg = N * L;
 
-    _clamp(v, lo, hi) { 
-        return v < lo ? lo : (v > hi ? hi : v); 
+        // z0/z1 interleaved → Float16Array (2 bytes per value ×2)
+        const bytesMat = numSeg;                // 1B × N×L
+        const bytesZpair = numSeg * 4;          // Float16 ×2 → 4B
+        const bytesLen = N;                     // Uint8 × N
+
+        const totalBytes = bytesMat + bytesZpair + bytesLen;
+        const [buf, offset] = this._allocAlignedBuffer(totalBytes, 64);
+
+        // 내부 오프셋 계산
+        const offMat = offset;
+        const offZpair = offMat + bytesMat;
+        const offLen = offZpair + bytesZpair;
+
+        // TypedArray 생성
+        const mat = new Uint8Array(buf, offMat, numSeg);
+        const zpair = new Uint16Array(buf, offZpair, numSeg * 2); // z0,z1 interleaved
+        const len = new Uint8Array(buf, offLen, N);
+
+        // 기본 초기화
+        mat.fill(0);
+        zpair.fill(0);
+        len.fill(0);
+
+        this.cols = { mat, zpair, len };
+        this.buffer = buf;
     }
 
-    _applyDepositAt(i, j, mat, dz) {
-        if (dz <= 0) return;
-        const col = this.cols[i][j];
-        const topZ = col.length ? col[col.length - 1][2] : 0;
+    /* ===========================================================
+       64B 정렬 ArrayBuffer 생성 유틸
+       =========================================================== */
+    _allocAlignedBuffer(byteLength, align = 64) {
+        const buf = new ArrayBuffer(byteLength + align);
+        const base = buf.byteOffset || 0;
+        const misalign = base % align;
+        const offset = misalign === 0 ? 0 : align - misalign;
+        return [buf, offset];
+    }
 
-        // top material이 같으면 상단 확장
-        if (col.length && col[col.length - 1][0] === mat) {
-            col[col.length - 1][2] = topZ + dz;
-        } else {
-            col.push([mat, topZ, topZ + dz]);
+    /* ===========================================================
+       헬퍼: index 계산
+       =========================================================== */
+    _colIndex(i, j) { return i * this.NY + j; }
+    _segIndex(i, j, k) { return (i * this.NY + j) * this.Lmax + k; }
+
+    /* ===========================================================
+       z quantization / dequantization
+       =========================================================== */
+    _quantizeZ(zReal) {
+        return Math.round(zReal / this.zScale);
+    }
+    _dequantizeZ(zInt) {
+        return zInt * this.zScale;
+    }
+
+    /* ===========================================================
+       버퍼 확장 (단순 크기 증가 + 기존 값 유지)
+       기존 cols.mat / cols.zpair / cols.len 은 그대로 두고,
+       새로운 길이의 배열을 만들어 값 복사 후 교체.
+       =========================================================== */
+    _expandBuffers() {
+        const oldLmax = this.Lmax;
+        const newLmax = oldLmax + this.expandStep; // 일정 step만큼 확장 (ex: +32)
+        console.log(`[ColumnGrid] Expanding array length: ${oldLmax} → ${newLmax}`);
+
+        const N = this.Ncols;
+        const oldCols = this.cols;
+        const Lratio = newLmax / oldLmax;
+
+        // --- mat ---
+        const oldMat = oldCols.mat;
+        const newMat = new Uint8Array(N * newLmax);
+        for (let c = 0; c < N; c++) {
+            const oldBase = c * oldLmax;
+            const newBase = c * newLmax;
+            const len = oldCols.len[c];
+            newMat.set(oldMat.subarray(oldBase, oldBase + len), newBase);
         }
+
+        // --- zpair ---
+        const oldZ = oldCols.zpair;
+        const newZ = new Uint16Array(N * newLmax * 2);
+        for (let c = 0; c < N; c++) {
+            const oldBase = c * oldLmax * 2;
+            const newBase = c * newLmax * 2;
+            const len = oldCols.len[c];
+            newZ.set(oldZ.subarray(oldBase, oldBase + len * 2), newBase);
+        }
+
+        // --- len (그대로 유지) ---
+        const newLen = new Uint8Array(oldCols.len);
+
+        // --- 0으로 초기화된 확장 영역은 자동 0-fill 상태임 ---
+        // JS TypedArray는 생성 시 0으로 초기화됨.
+
+        // --- 교체 ---
+        this.cols.mat = newMat;
+        this.cols.zpair = newZ;
+        this.cols.len = newLen;
+        this.Lmax = newLmax;
     }
 
-    _applyEtchAt(i, j, mat, dz) {
-        if (dz <= 0) return;
-        const col = this.cols[i][j];
-        if (!col.length) return;
 
-        let remaining = dz;
-        while (remaining > 1e-9 && col.length > 0) {
-            const top = col[col.length - 1];
-            if ((mat !== 'ALL') && (top[0] !== mat)) return;
-            const thick = top[2] - top[1];
-            if (remaining < thick - 1e-9) {
-                // 부분만 깎음
-                top[2] -= remaining;
-                remaining = 0;
-                break;
-            } else {
-                // 전층 제거
-                remaining -= thick;
-                col.pop();
+    /* ===========================================================
+       기본 접근 함수
+       =========================================================== */
+    getLen(i, j) {
+        return this.cols.len[this._colIndex(i, j)];
+    }
+
+    topMat(i, j) {
+        const cidx = this._colIndex(i, j);
+        const l = this.cols.len[cidx];
+        if (l === 0) return 0;
+        return this.cols.mat[cidx * this.Lmax + (l - 1)];
+    }
+
+    topZ(i, j) {
+        const cidx = this._colIndex(i, j);
+        const l = this.cols.len[cidx];
+        if (l === 0) return 0;
+        const base = (cidx * this.Lmax + (l - 1)) * 2;
+        return this._dequantizeZ(this.cols.zpair[base + 1]); // z1
+    }
+
+    /* ===========================================================
+       컬럼 추가 / 삭제 (depo, etch의 기반)
+       =========================================================== */
+    addLayer(i, j, matId, z0_real, z1_real) {
+        const cidx = this._colIndex(i, j);
+        let l = this.cols.len[cidx];
+        if (l >= this.Lmax) this._expandBuffers();
+
+        const base = (cidx * this.Lmax + l);
+        this.cols.mat[base] = matId;
+
+        const qz0 = this._quantizeZ(z0_real);
+        const qz1 = this._quantizeZ(z1_real);
+        const zBase = base * 2;
+        this.cols.zpair[zBase] = qz0;
+        this.cols.zpair[zBase + 1] = qz1;
+
+        this.cols.len[cidx] = l + 1;
+    }
+
+    removeTopLayer(i, j) {
+        const cidx = this._colIndex(i, j);
+        const l = this.cols.len[cidx];
+        if (l === 0) return;
+        this.cols.len[cidx] = l - 1;
+    }
+
+    /* ===========================================================
+       Grid 초기화 / 복제
+       =========================================================== */
+    clearAll() {
+        this.cols.mat.fill(0);
+        this.cols.zpair.fill(0);
+        this.cols.len.fill(0);
+    }
+
+    cloneCols() {
+        // 깊은 복사 (ArrayBuffer 새로)
+        const matCopy = new Uint8Array(this.cols.mat);
+        const zpairCopy = new Uint16Array(this.cols.zpair);
+        const lenCopy = new Uint8Array(this.cols.len);
+        return { mat: matCopy, zpair: zpairCopy, len: lenCopy };
+    }
+
+    /* ===========================================================
+       캐시 저장 / 불러오기
+       =========================================================== */
+
+    initializeCache() {
+        this.colsCache = {};
+        this.colsCache[0] = [null, 0];
+    }
+
+    saveCache(id) {
+        this.colsCache[id] = [this.cloneCols(), 0];
+    }
+
+    loadCache(id) {
+        const c = this.colsCache[id];
+        if (!c[0]) {
+            this.clearAll();
+            return;
+        }
+        // deep copy 복원
+        this.cols.mat = new Uint8Array(c[0].mat);
+        this.cols.zpair = new Uint16Array(c[0].zpair);
+        this.cols.len = new Uint8Array(c[0].len);
+        this.colsCache[id][1] += 1;
+
+        return;
+    }
+
+    /* ===========================================================
+       유틸
+       =========================================================== */
+    _nextPowerOf2(n) {
+        return 1 << (32 - Math.clz32(Math.max(1, n - 1)));
+    }
+
+
+
+
+
+
+
+
+
+    /* ============================
+     * 기본 유틸
+     * ============================ */
+    _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    _ensureBuf(name, length, kind = 'f32') {
+        const C = (kind === 'f32') ? Float32Array : (kind === 'u8' ? Uint8Array : Uint16Array);
+        if (!this[name] || this[name].length < length) this[name] = new C(length);
+        return this[name];
+    }
+
+    /* ===========================================================
+       컨포멀 커널 (수평 반경 S·t, 수직 팽창량 t)
+       rows[du+Rx] = Float32Array [ dv0, add0, dv1, add1, ... ]
+       add = sqrt( t^2 - (sqrt((du*dx)^2+(dv*dy)^2) / S)^2 )
+       =========================================================== */
+    _getConformalKernelArray(t, S, dx, dy) {
+        this._confKernelCacheArr = this._confKernelCacheArr || new Map();
+        const key = `${(t * 1000 | 0)}|${(S * 1000 | 0)}|${(dx * 1000 | 0)}|${(dy * 1000 | 0)}`;
+        const hit = this._confKernelCacheArr.get(key);
+        if (hit) return hit;
+
+        const Rx = Math.ceil(t / dx);
+        const Ry = Math.ceil(t / dy);
+        const t2 = t * t;
+        const Sinv = 1 / Math.max(S, 1e-6);
+        const rows = new Array(Rx * 2 + 1);
+        const dx2 = dx * dx, dy2 = dy * dy;
+
+        for (let du = -Rx; du <= Rx; du++) {
+            const row = [];
+            const du2dx2 = du * du * dx2;
+            for (let dv = -Ry; dv <= Ry; dv++) {
+                const r2 = du2dx2 + dv * dv * dy2;
+                const r_lat = Math.sqrt(r2) * Sinv;
+                if (r_lat <= t + 1e-9) {
+                    const add = Math.sqrt(Math.max(0, t2 - r_lat * r_lat));
+                    row.push(dv | 0, add);
+                }
             }
+            rows[du + Rx] = row.length ? Float32Array.from(row) : new Float32Array(0);
         }
-
+        const out = { Rx, Ry, rows, baseAdd: t };
+        this._confKernelCacheArr.set(key, out);
+        if (this._confKernelCacheArr.size > 32) {
+            const k0 = this._confKernelCacheArr.keys().next().value;
+            this._confKernelCacheArr.delete(k0);
+        }
+        return out;
     }
 
-    // ColumnGrid 클래스 내부에 추가
-    etch_general(maskFn, mat, thickness, conformality) {
+    /* ===========================================================
+       패딩된 높이맵 (경계 조건 = 클램프 복제)
+       pad: Float32Array, 크기 = (NX+2Rx) × (NY+2Ry)
+       =========================================================== */
+    _buildPaddedH(H, NX, NY, Rx, Ry) {
+        const W = NX + 2 * Rx, Hh = NY + 2 * Ry;
+        const pad = this._ensureBuf('_bufPad', W * Hh, 'f32');
+
+        // 중앙 복사
+        for (let i = 0; i < NX; i++) {
+            const src = i * NY;
+            const dst = (i + Rx) * Hh + Ry;
+            pad.set(H.subarray(src, src + NY), dst);
+        }
+        // 상/하 패드
+        for (let i = Rx; i < Rx + NX; i++) {
+            const base = i * Hh;
+            const first = pad[base + Ry];
+            for (let j = 0; j < Ry; j++) pad[base + j] = first;
+            const last = pad[base + Ry + NY - 1];
+            for (let j = Ry + NY; j < Ry + NY + Ry; j++) pad[base + j] = last;
+        }
+        // 좌/우 패드
+        for (let j = 0; j < Hh; j++) {
+            const L = pad[Rx * Hh + j];
+            const R = pad[(Rx + NX - 1) * Hh + j];
+            for (let i = 0; i < Rx; i++) pad[i * Hh + j] = L;
+            for (let i = Rx + NX; i < Rx + NX + Rx; i++) pad[i * Hh + j] = R;
+        }
+        return { pad, W, Hh };
+    }
+
+    /* ===========================================================
+       상단 증착/연장 (SoA 전용)
+       - matId: Uint8 (0=empty, 255=ALL 예약)
+       - dz_real > 0 인 경우만 호출
+       - top 재료가 같으면 z1만 올려 연장, 아니면 새 레이어 추가
+       =========================================================== */
+    _depoAtTop_(i, j, matId, dz_real) {
+        if (dz_real <= 0) return;
+        const cidx = this._colIndex(i, j);
+        let l = this.cols.len[cidx];
+
+        // 현재 top 높이/재료
+        let topZ = 0, topMat = 0;
+        if (l > 0) {
+            const baseTop = cidx * this.Lmax + (l - 1);
+            const zBase = baseTop * 2;
+            topZ = this._dequantizeZ(this.cols.zpair[zBase + 1]);
+            topMat = this.cols.mat[baseTop];
+        }
+
+        const newTop = topZ + dz_real;
+        if (l > 0 && topMat === matId) {
+            // 연장
+            const baseTop = cidx * this.Lmax + (l - 1);
+            this.cols.zpair[baseTop * 2 + 1] = this._quantizeZ(newTop);
+        } else {
+            // 새 레이어
+            if (l >= this.Lmax) this._expandBuffers(); // 필요 시 확장(+expandStep)
+            const base = cidx * this.Lmax + l;
+            const zBase = base * 2;
+            this.cols.mat[base] = matId;
+            this.cols.zpair[zBase] = this._quantizeZ(topZ);
+            this.cols.zpair[zBase + 1] = this._quantizeZ(newTop);
+            this.cols.len[cidx] = l + 1;
+        }
+    }
+
+    /* ===========================================================
+       컨포멀 증착 (정확 표면 팽창)
+       - maskFn(x,y): true면 적용, 없으면 전체
+       - matId: 증착 재료 (Uint8). 255는 'ALL' 예약이지만, 증착에선 보통 실제 재료 ID 사용.
+       - thickness: t (nm)
+       - conformality: S (0~1), 수평 도달 = t*S
+       =========================================================== */
+    deposit_general(maskFn, matId, thickness, conformality) {
         const t = Math.max(0, Number(thickness) || 0);
         if (t <= 0) return;
 
         const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy;
         const S = this._clamp(Number(conformality ?? 1.0), 0, 1);
         const latRange = t * S;
-        const isAll = (mat === 'ALL');
         const eps = 1e-9;
 
-        // ---------- 빠른 경로: 사실상 수직식각 ----------
+        // 1) 빠른 경로: 사실상 수직 증착 (latRange < 그리드 해상도)
         if (latRange < Math.min(dx, dy)) {
             for (let i = 0; i < NX; i++) {
                 for (let j = 0; j < NY; j++) {
                     const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                    if (!maskFn || maskFn(x, y)) {
-                        const col = this.cols[i][j];
-                        if (!col.length) continue;
-                        this._applyEtchAt(i, j, mat, thickness);
-                    }
+                    if (maskFn && !maskFn(x, y)) continue;
+                    this._depoAtTop_(i, j, matId, t);
                 }
             }
             return;
         }
 
-        // ---------- 높이맵 H, 대상맵 E, 그리고 floor(연속 상단 식각가능층 하한) ----------
-        const H = this._ensureBuf('_bufH', NX * NY);
-        const E = this._ensureBuf('_bufE', NX * NY);
-        const F = this._ensureBuf('_bufF', NX * NY); // ← 추가: floorZ(per column)
+
+        // 2) 현재 top 높이맵 H 구축
+        const H = this._ensureBuf('_bufH', NX * NY, 'f32');
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const idx = i * NY + j;
+                const l = this.cols.len[idx];
+                if (l === 0) { H[idx] = 0; continue; }
+                const baseTop = idx * this.Lmax + (l - 1);
+                H[idx] = this._dequantizeZ(this.cols.zpair[baseTop * 2 + 1]); // z1
+            }
+        }
+
+        // 3) 커널/패딩
+        const { Rx, rows, baseAdd } = this._getConformalKernelArray(t, S, dx, dy);
+        const { pad: HPad, W: PW, Hh: PH } = this._buildPaddedH(H, NX, NY, Rx, Rx);
+
+        // 4) 활성 bbox (mask sparse 최적화)
+        let iMin = 0, iMax = NX - 1, jMin = 0, jMax = NY - 1;
+        if (maskFn) {
+            let found = false, _iMin = NX, _iMax = -1, _jMin = NY, _jMax = -1;
+            for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
+                const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
+                if (maskFn(x, y)) {
+                    found = true;
+                    if (i < _iMin) _iMin = i; if (i > _iMax) _iMax = i;
+                    if (j < _jMin) _jMin = j; if (j > _jMax) _jMax = j;
+                }
+            }
+            if (!found) return;
+            iMin = Math.max(0, _iMin - Rx);
+            iMax = Math.min(NX - 1, _iMax + Rx);
+            jMin = Math.max(0, _jMin - Rx);
+            jMax = Math.min(NY - 1, _jMax + Rx);
+        }
+
+        // 5) 팽창 표면 Hp 계산
+        const Hp = this._ensureBuf('_bufHp', NX * NY, 'f32');
+        if (maskFn) {
+            for (let i = 0; i < NX; i++) {
+                const ii = i * NY;
+                for (let j = 0; j < NY; j++) {
+                    const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
+                    Hp[ii + j] = maskFn(x, y) ? (H[ii + j] + baseAdd) : H[ii + j];
+                }
+            }
+        } else {
+            for (let idx = 0; idx < NX * NY; idx++) Hp[idx] = H[idx] + baseAdd;
+        }
+
+        for (let i = iMin; i <= iMax; i++) {
+            const ii = i * NY, ip = i + Rx;
+            for (let j = jMin; j <= jMax; j++) {
+                const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
+                if (maskFn && !maskFn(x, y)) continue;
+
+                let m = Hp[ii + j];           // 기본: H + t
+                const jp = j + Rx;
+                for (let du = -Rx; du <= Rx; du++) {
+                    const row = rows[du + Rx];
+                    if (!row.length) continue;
+                    const base = (ip + du) * PH;
+                    const center = base + jp;
+                    for (let k = 0; k < row.length; k += 2) {
+                        const dv = row[k] | 0;
+                        const add = row[k + 1];
+                        const cand = HPad[center + dv] + add;
+                        if (cand > m) m = cand;
+                    }
+                }
+                Hp[ii + j] = m;
+            }
+        }
+
+        // 6) Δz 적용 (SoA 명시형 반영)
+        for (let i = iMin; i <= iMax; i++) {
+            const ii = i * NY;
+            for (let j = jMin; j <= jMax; j++) {
+                const newTop = Hp[ii + j];
+                const oldTop = H[ii + j];
+                const dz = newTop - oldTop;
+                if (dz <= eps) continue;
+                this._depoAtTop_(i, j, matId, dz);
+            }
+        }
+    }
+
+    /* ===========================================================
+       SoA 기반 단일 column 식각 유틸
+       - i, j: grid 좌표
+       - matId: 식각할 재료 ID (Uint8)
+       - dz: 제거할 두께 (nm)
+       - isAll: true면 모든 재료를 식각
+       =========================================================== */
+    _applyEtchAt(i, j, matId, dz, isAll = false) {
+        if (dz <= 0) return;
+
+        const cidx = i * this.NY + j;
+        let remaining = dz;
+
+        while (remaining > 1e-9 && this.cols.len[cidx] > 0) {
+            const topIdx = this.cols.len[cidx] - 1;
+            const base = cidx * this.Lmax + topIdx;
+            const mat = this.cols.mat[base];
+            if (!isAll && mat !== matId) break;
+
+            const zBase = base * 2;
+            const z0 = this._dequantizeZ(this.cols.zpair[zBase]);
+            const z1 = this._dequantizeZ(this.cols.zpair[zBase + 1]);
+            const thick = z1 - z0;
+
+            if (remaining < thick - 1e-9) {
+                // 부분 식각
+                this.cols.zpair[zBase + 1] = this._quantizeZ(z1 - remaining);
+                remaining = 0;
+            } else {
+                // 전체 레이어 제거
+                remaining -= thick;
+                this.cols.len[cidx] = topIdx;
+            }
+        }
+    }
+
+
+    /* ===========================================================
+       등방성 식각 (conformal etch)
+       - maskFn(x,y): true면 적용, 없으면 전체
+       - matId: 식각 대상 (Uint8, 255=ALL)
+       - thickness: t (nm)
+       - conformality: S (0~1)
+       =========================================================== */
+    etch_general(maskFn, matId, thickness, conformality) {
+        const t = Math.max(0, Number(thickness) || 0);
+        if (t <= 0) return;
+
+        const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy;
+        const S = this._clamp(Number(conformality ?? 1.0), 0, 1);
+        const latRange = t * S;
+        const isAll = (matId === 255);
+        const eps = 1e-9;
+
+        // ===== 1️⃣ 빠른 경로: 사실상 수직 식각 =====
+        if (latRange < Math.min(dx, dy)) {
+            for (let i = 0; i < NX; i++) {
+                for (let j = 0; j < NY; j++) {
+                    const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
+                    if (maskFn && !maskFn(x, y)) continue;
+                    this._applyEtchAt(i, j, matId, t, isAll);
+                }
+            }
+            return;
+        }
+
+        // ===== 2️⃣ 높이맵 H, 대상맵 E, floor맵 F 계산 =====
+        const H = this._ensureBuf('_bufH', NX * NY, 'f32');
+        const E = this._ensureBuf('_bufE', NX * NY, 'u8');
+        const F = this._ensureBuf('_bufF', NX * NY, 'f32');
 
         for (let i = 0; i < NX; i++) {
             const ii = i * NY;
             for (let j = 0; j < NY; j++) {
-                const col = this.cols[i][j];
-                const topZ = col.length ? col[col.length - 1][2] : 0;
-                H[ii + j] = topZ;
+                const cidx = ii + j;
+                const L = this.cols.len[cidx];
+                let topZ = 0, etchTopOK = false;
+
+                if (L > 0) {
+                    const topBase = cidx * this.Lmax + (L - 1);
+                    const topMat = this.cols.mat[topBase];
+                    const z1 = this.cols.zpair[topBase * 2 + 1];
+                    topZ = this._dequantizeZ(z1);
+                    etchTopOK = isAll || (topMat === matId);
+                }
 
                 const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                const inMask = (!maskFn || maskFn(x, y));
-
-                let etchTopOK = false;
-                if (col.length) {
-                    const topSeg = col[col.length - 1];
-                    etchTopOK = isAll || (topSeg[0] === mat);
-                }
+                const inMask = !maskFn || maskFn(x, y);
+                H[ii + j] = topZ;
                 E[ii + j] = (inMask && etchTopOK) ? 1 : 0;
 
-                // floor F 계산: 해당 칼럼에서 "윗면부터 연속으로 etch 가능한 구간"의 바닥 z
-                // - ALL: floor=0
-                // - mat: top에서 아래로 mat가 연속되는 동안만 내려감. 중간에 다른 재료가 나오면 그 경계가 floor.
-                if (!col.length) {
-                    F[ii + j] = 0; // 아무것도 없으면 바닥
+                // floor 계산 (연속 동일 재료 구간 하한)
+                if (L === 0) {
+                    F[ii + j] = 0;
                 } else if (isAll) {
                     F[ii + j] = 0;
                 } else if (etchTopOK) {
-                    // top부터 아래로 같은 mat 연속 구간의 바닥 찾기
-                    let floorZ = col[col.length - 1][1]; // 일단 top segment의 바닥
-                    for (let s = col.length - 2; s >= 0; s--) {
-                        if (col[s][0] !== mat) break;
-                        floorZ = col[s][1];
+                    let floorZ = this._dequantizeZ(this.cols.zpair[(cidx * this.Lmax + (L - 1)) * 2]);
+                    for (let s = L - 2; s >= 0; s--) {
+                        const baseS = cidx * this.Lmax + s;
+                        if (this.cols.mat[baseS] !== matId) break;
+                        floorZ = this._dequantizeZ(this.cols.zpair[baseS * 2]);
                     }
                     F[ii + j] = Math.max(0, floorZ);
                 } else {
-                    // top이 대상이 아니면 이번 라운드에 식각 대상 아님 → floor는 의미 없지만 0으로 둠
                     F[ii + j] = 0;
                 }
             }
         }
 
-        // ---------- 커널/패딩 ----------
+        // ===== 3️⃣ 커널/패딩 준비 =====
         const { Rx, rows } = this._getConformalKernelArray(t, S, dx, dy);
         const { pad: HPad, W: PW, Hh: PH } = this._buildPaddedH(H, NX, NY, Rx, Rx);
 
-        // 대상맵 패딩 (비대상 0)
+        // EPad 구성 (이웃 여부 판단용)
         const EPadLen = (NX + 2 * Rx) * (NY + 2 * Rx);
-        const EPad = this._ensureBuf('_bufEPad', EPadLen);
+        const EPad = this._ensureBuf('_bufEPad', EPadLen, 'u8');
         EPad.fill(0);
         for (let i = 0; i < NX; i++) {
             const srcBase = i * NY;
@@ -156,7 +635,7 @@ class ColumnGrid {
             for (let j = 0; j < NY; j++) EPad[dstBase + j] = E[srcBase + j];
         }
 
-        // ---------- 활성 BBox ----------
+        // ===== 4️⃣ 활성 bbox 계산 =====
         let iMin = 0, iMax = NX - 1, jMin = 0, jMax = NY - 1;
         {
             let found = false, _iMin = NX, _iMax = -1, _jMin = NY, _jMax = -1;
@@ -177,18 +656,11 @@ class ColumnGrid {
             jMax = Math.min(NY - 1, _jMax + Rx);
         }
 
-        // ---------- 침식 표면 계산 (√ 라운딩 + floor/바닥 클램프) ----------
-        const Hp = this._ensureBuf('_bufHp', NX * NY);
+        // ===== 5️⃣ 침식 표면 계산 =====
+        const Hp = this._ensureBuf('_bufHp', NX * NY, 'f32');
+        for (let idx = 0; idx < NX * NY; idx++)
+            Hp[idx] = (E[idx] === 1) ? (H[idx] - t) : H[idx];
 
-        // 기본: 대상칸이면 H - t, 비대상은 H
-        for (let i = 0; i < NX; i++) {
-            const ii = i * NY;
-            for (let j = 0; j < NY; j++) {
-                Hp[ii + j] = (E[ii + j] === 1) ? (H[ii + j] - t) : H[ii + j];
-            }
-        }
-
-        // 이웃 고려 (대상칸만 업데이트; 이웃도 대상칸만 측면 기여 허용)
         for (let i = iMin; i <= iMax; i++) {
             const ii = i * NY, ip = i + Rx;
             for (let j = jMin; j <= jMax; j++) {
@@ -203,19 +675,18 @@ class ColumnGrid {
                     for (let k = 0; k < row.length; k += 2) {
                         const dv = row[k] | 0;
                         const add = row[k + 1];
-                        if (EPad[center + dv] !== 1) continue; // 이웃 칼럼도 대상이어야 측면 식각 인정
+                        if (EPad[center + dv] !== 1) continue; // 인접한 위치도 식각 가능해야 측면 기여 인정
                         const cand = HPad[center + dv] - add;
                         if (cand < m) m = cand;
                     }
                 }
-
-                // ★ 핵심: 침식 결과를 바닥으로 클램프 (z>=0, 그리고 해당 칼럼의 etchable 연속층 하한)
-                const floorZ = F[ii + j];           // 연속 상단 etchable층의 바닥
+                // 바닥(floorZ) 이하로 내려가지 않게 클램프
+                const floorZ = F[ii + j];
                 Hp[ii + j] = Math.max(0, Math.max(floorZ, m));
             }
         }
 
-        // ---------- Δz 적용 (명시형 구조 기반) ----------
+        // ===== 6️⃣ Δz 적용 (실제 식각 수행) =====
         for (let i = iMin; i <= iMax; i++) {
             const ii = i * NY;
             for (let j = jMin; j <= jMax; j++) {
@@ -223,654 +694,117 @@ class ColumnGrid {
                 const newTop = Hp[ii + j];
                 const oldTop = H[ii + j];
                 const dz = oldTop - newTop;
-                if (dz <= eps) continue;
-
-                const col = this.cols[i][j];
-                if (!col.length) continue;
-
-                // 대상 물질만 위에서부터 제거 (floor 클램프 덕분에 과도식각/역전 방지)
-                let remaining = dz;
-                while (remaining > eps && col.length > 0) {
-                    const top = col[col.length - 1];
-                    if (!isAll && top[0] !== mat) break;
-
-                    const thick = top[2] - top[1];
-                    if (remaining < thick - eps) { top[2] -= remaining; remaining = 0; }
-                    else { remaining -= thick; col.pop(); }
-                }
+                if (dz > eps) this._applyEtchAt(i, j, matId, dz, isAll);
             }
         }
     }
 
 
-    // ColumnGrid 내부 메서드로 추가
-    // === ColumnGrid 내부 메서드 ===
-    // Wet etch (voxel-free, surface-based isotropic, iterative)
-    // ColumnGrid 메서드로 추가
-    etch_wet(maskFn, mat, thickness, opts = {}) {
-        const tTot = Math.max(0, Number(thickness) || 0);
-        if (tTot <= 0) return;
 
-        const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy;
-        const Lmin = Math.min(dx, dy);
-        const dt = Math.max(1e-9, Number(opts.dt) || Lmin);      // 한 step 두께(수직 기준)
-        const isAll = (mat === 'ALL');
+
+    /* ===========================================================
+       CMP (Chemical Mechanical Planarization)
+       - depth: 연마 깊이 (nm)
+       - stopMatId: 스토퍼 재료 ID (Uint8, 0이면 없음)
+       =========================================================== */
+    cmp(depth, stopMatId = 0) {
+        if (depth <= 0) return;
+
+        const NX = this.NX, NY = this.NY;
         const eps = 1e-9;
+        const Lmax = this.Lmax;
+        const cols = this.cols;
 
-        // --- 내부 버퍼 (재사용) ---
-        const H = (this._ensureBuf ? this._ensureBuf('_wetH', NX * NY) : new Float32Array(NX * NY));
-        const Hm = (this._ensureBuf ? this._ensureBuf('_wetHm', NX * NY) : new Float32Array(NX * NY)); // 이웃(min) 높이
-        const E = (this._ensureBuf ? this._ensureBuf('_wetE', NX * NY) : new Uint8Array(NX * NY));   // 마스크 on/off
+        let zTop = 0;
+        let stopperTop = -Infinity;
 
-        // --- 캐시 준비: thk → 스냅샷 ---
-        //  - 외부에서 opts.isCache=true일 때만 활용
-        //  - 이 함수는 "현재 geometry가 캐시 기준과 일치"한다고 신뢰 (사용자가 보장)
-        this._wetetchCache = this._wetetchCache || new Map(); // key: thkQ (정규 step 누적), val: snapshot(cols)
-        const useCache = !!opts.isCache;
+        // ===== ① 전체 zTop 및 stopperTop 계산 =====
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                const len = cols.len[cidx];
+                if (len === 0) continue;
 
-        // 정규 step 개수/잔여
-        const nFull = Math.floor(tTot / dt);
-        const remThk = tTot - nFull * dt;
+                // top segment의 z1
+                const baseTop = cidx * Lmax + (len - 1);
+                const z1 = this._dequantizeZ(cols.zpair[baseTop * 2 + 1]);
+                zTop = Math.max(zTop, z1);
 
-        // -------------------------------
-        // 0) 캐시에서 재시작점 로드 (가장 가까운 ≤ tTot 정규 step 키)
-        // -------------------------------
-        if (useCache && this._wetetchCache.size) {
-            let bestKey = -Infinity;
-            for (const k of this._wetetchCache.keys()) {
-                if (k <= nFull * dt && k > bestKey) bestKey = k;
-            }
-            if (Number.isFinite(bestKey) && bestKey >= 0) {
-                const snap = this._wetetchCache.get(bestKey);
-                if (snap) _restoreSnapshot.call(this, snap);
+                // stopper 탐색
+                if (stopMatId !== 0) {
+                    for (let k = 0; k < len; k++) {
+                        const base = cidx * Lmax + k;
+                        if (cols.mat[base] === stopMatId) {
+                            const z1s = this._dequantizeZ(cols.zpair[base * 2 + 1]);
+                            stopperTop = Math.max(stopperTop, z1s);
+                        }
+                    }
+                }
             }
         }
 
-        // -------------------------------
-        // 헬퍼: 현재 top height(H), 마스크(E) 생성
-        // -------------------------------
-        const _buildH = () => {
-            for (let i = 0; i < NX; i++) {
-                const ii = i * NY;
-                for (let j = 0; j < NY; j++) {
-                    const col = this.cols[i][j];
-                    H[ii + j] = col.length ? col[col.length - 1][2] : 0;
-                    if (maskFn) {
-                        const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                        E[ii + j] = maskFn(x, y) ? 1 : 0;
+        // ===== ② targetZ 결정 =====
+        let targetZ;
+        if (stopMatId === 0 || stopperTop === -Infinity) {
+            targetZ = zTop - depth;
+        } else {
+            targetZ = Math.max(zTop - depth, stopperTop);
+        }
+
+        // ===== ③ CMP 수행 =====
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                let len = cols.len[cidx];
+                if (len === 0) continue;
+
+                // ④ stopper 존재 여부 및 높이 확인
+                let stopZ = -Infinity;
+                if (stopMatId !== 0) {
+                    for (let k = 0; k < len; k++) {
+                        const base = cidx * Lmax + k;
+                        if (cols.mat[base] === stopMatId) {
+                            stopZ = this._dequantizeZ(cols.zpair[base * 2 + 1]);
+                            break;
+                        }
+                    }
+                }
+
+                const limitZ = Math.max(targetZ, stopZ);
+
+                // ===== ⑤ 위에서부터 잘라내기 =====
+                while (len > 0) {
+                    const topIdx = len - 1;
+                    const base = cidx * Lmax + topIdx;
+                    const zBase = base * 2;
+                    const z0 = this._dequantizeZ(cols.zpair[zBase]);
+                    const z1 = this._dequantizeZ(cols.zpair[zBase + 1]);
+
+                    if (z1 <= limitZ + eps) break; // 이미 충분히 낮음
+
+                    if (z0 < limitZ - eps) {
+                        // 일부만 깎임 → z1을 limitZ로 절단
+                        cols.zpair[zBase + 1] = this._quantizeZ(limitZ);
+                        break;
                     } else {
-                        E[ii + j] = 1;
+                        // 전층 제거
+                        len -= 1;
                     }
                 }
-            }
-        };
 
-        // 헬퍼: Hm = 4이웃의 top 높이 중 "최솟값"
-        //  - 어떤 높이 z에서라도 한 방향 이웃이 z보다 낮으면 그 z에서 옆면 노출
-        const _buildHm = () => {
-            for (let i = 0; i < NX; i++) {
-                const ii = i * NY;
-                for (let j = 0; j < NY; j++) {
-                    let m = Infinity;
-                    // 경계 밖은 공기 → 높이 0
-                    const up = (j + 1 < NY) ? H[ii + (j + 1)] : 0;
-                    const down = (j - 1 >= 0) ? H[ii + (j - 1)] : 0;
-                    const left = (i - 1 >= 0) ? H[(i - 1) * NY + j] : 0;
-                    const right = (i + 1 < NX) ? H[(i + 1) * NY + j] : 0;
-                    // side 노출은 "한 방향이라도 낮으면" 발생 → 모든 이웃 높이 중 최솟값이 경계선
-                    m = Math.min(up, down, left, right);
-                    Hm[ii + j] = m;
-                }
-            }
-        };
+                // ===== ⑥ 업데이트 및 정리 =====
+                cols.len[cidx] = len;
 
-        // 헬퍼: 상단 연속 etchable 층의 "바닥 z" (floorZ)
-        //  - ALL: 0
-        //  - 특정 mat: top에서 아래로 같은 mat가 연속되는 구간의 하한
-        const _floorZ = (col) => {
-            if (!col.length) return 0;
-            if (isAll) return 0;
-            const top = col[col.length - 1];
-            if (top[0] !== mat) return top[2]; // 이번 step에서 etch 불가(연속 없음)
-            let floor = top[1];
-            for (let s = col.length - 2; s >= 0; s--) {
-                if (col[s][0] !== mat) break;
-                floor = col[s][1];
-            }
-            return Math.max(0, floor);
-        };
-
-        // 헬퍼: 아주 얇은 세그 제거 + 인접 동일물질 merge
-        const _compact = (col) => {
-            if (col.length === 0) return col;
-            const out = [];
-            for (let s = 0; s < col.length; s++) {
-                const seg = col[s];
-                if (seg[2] <= seg[1] + 1e-9) continue;
-                if (out.length && out[out.length - 1][0] === seg[0] && Math.abs(out[out.length - 1][2] - seg[1]) < 1e-9) {
-                    out[out.length - 1][2] = seg[2];
-                } else {
-                    out.push([seg[0], seg[1], seg[2]]);
-                }
-            }
-            return out;
-        };
-
-        // -------------------------------
-        // 1) 정규 step 반복 (nFull회)
-        //    각 step: (a) H/Hm 구성 → (b) 측면 nibble → (c) 수직 식각 → (d) 조기종료 검사
-        // -------------------------------
-        let anyChangeGlobal = false;
-        for (let step = 0; step < nFull; step++) {
-            _buildH();
-            _buildHm();
-
-            let changed = false;
-
-            // (a) 측면 nibble: top 세그먼트가 대상(또는 ALL)이고, topZ > Hm이면 topZ를 Hm으로 clamp
-            for (let i = 0; i < NX; i++) {
-                const ii = i * NY;
-                for (let j = 0; j < NY; j++) {
-                    if (E[ii + j] !== 1) continue;
-                    const col = this.cols[i][j];
-                    if (!col.length) continue;
-
-                    // top이 대상이 아니면 옆면으로 해당 물질 노출 안 됨(상층이 가림)
-                    let top = col[col.length - 1];
-                    if (!(isAll || top[0] === mat)) continue;
-
-                    const cutZ = Math.max(0, Hm[ii + j]); // 이 높이보다 위는 최소 한 방향에서 공기 접촉
-                    if (top[2] > cutZ + eps) {
-                        // top을 Hm으로 잘라내기
-                        if (cutZ <= top[1] + eps) {
-                            // segment 전체가 잘려나감
-                            col.pop();
-                        } else {
-                            top[2] = cutZ;
-                        }
-                        changed = true;
+                if (len > 0) {
+                    const topIdx = len - 1;
+                    const base = cidx * Lmax + topIdx;
+                    const zBase = base * 2;
+                    const z0 = cols.zpair[zBase];
+                    const z1 = cols.zpair[zBase + 1];
+                    if (z1 <= z0 + 1) {
+                        // 두께 0 이하 → pop
+                        cols.len[cidx] = len - 1;
                     }
-                }
-            }
-
-            // (b) 수직 식각 dt: top 연속 etchable 구간 바닥으로 클램프
-            for (let i = 0; i < NX; i++) {
-                for (let j = 0; j < NY; j++) {
-                    const ii = i * NY + j;
-                    if (E[ii] !== 1) continue;
-                    const col = this.cols[i][j];
-                    if (!col.length) continue;
-
-                    const top = col[col.length - 1];
-                    if (!(isAll || top[0] === mat)) continue;
-
-                    const floor = _floorZ(col);
-                    const oldTopZ = top[2];
-                    const newTopZ = Math.max(0, Math.max(floor, oldTopZ - dt));
-                    if (newTopZ < oldTopZ - eps) {
-                        if (newTopZ <= top[1] + eps) col.pop();
-                        else top[2] = newTopZ;
-                        changed = true;
-                    }
-                }
-            }
-
-            // (c) 컴팩트
-            if (changed) {
-                for (let i = 0; i < NX; i++) {
-                    for (let j = 0; j < NY; j++) {
-                        const col = this.cols[i][j];
-                        if (col.length) this.cols[i][j] = _compact(col);
-                    }
-                }
-            }
-
-            anyChangeGlobal = anyChangeGlobal || changed;
-            // (d) 조기종료: 더 이상 변화 없으면 이후 step에도 변화 없음
-            if (!changed) break;
-        }
-
-        // -------------------------------
-        // 2) 정규 step 종료 시점 캐시 저장 (잔여 step은 저장 X)
-        // -------------------------------
-        if (useCache && nFull > 0) {
-            const thkKey = nFull * dt; // 정규 step 누적 두께
-            this._wetetchCache.set(thkKey, _makeSnapshot.call(this));
-        }
-
-        // -------------------------------
-        // 3) 잔여 step 처리
-        //     - 수직: remThk 만큼
-        //     - 측면: remThk가 Lmin/2 이상이면 1회 nibble(반올림)
-        // -------------------------------
-        if (remThk > eps) {
-            // 수직 먼저
-            for (let i = 0; i < NX; i++) {
-                for (let j = 0; j < NY; j++) {
-                    const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                    if (maskFn && !maskFn(x, y)) continue;
-
-                    const col = this.cols[i][j];
-                    if (!col.length) continue;
-
-                    const top = col[col.length - 1];
-                    if (!(isAll || top[0] === mat)) continue;
-
-                    const floor = _floorZ(col);
-                    const oldTopZ = top[2];
-                    const newTopZ = Math.max(0, Math.max(floor, oldTopZ - remThk));
-                    if (newTopZ < oldTopZ - eps) {
-                        if (newTopZ <= top[1] + eps) col.pop();
-                        else top[2] = newTopZ;
-                    }
-                }
-            }
-
-            // 측면(반올림): remThk >= Lmin/2 이면 1회 nibble
-            if (remThk >= 0.5 * Lmin) {
-                _buildH();
-                _buildHm();
-                for (let i = 0; i < NX; i++) {
-                    const ii = i * NY;
-                    for (let j = 0; j < NY; j++) {
-                        if (E[ii + j] !== 1) continue;
-                        const col = this.cols[i][j];
-                        if (!col.length) continue;
-                        const top = col[col.length - 1];
-                        if (!(isAll || top[0] === mat)) continue;
-
-                        const cutZ = Math.max(0, Hm[ii + j]);
-                        if (top[2] > cutZ + eps) {
-                            if (cutZ <= top[1] + eps) col.pop();
-                            else top[2] = cutZ;
-                        }
-                    }
-                }
-                // 컴팩트
-                for (let i = 0; i < NX; i++) {
-                    for (let j = 0; j < NY; j++) {
-                        const col = this.cols[i][j];
-                        if (col.length) this.cols[i][j] = _compact(col);
-                    }
-                }
-            }
-        }
-
-        // -------------------------------
-        // 4) 최종 조기종료 보정: 남은 etch 대상이 더는 없으면 캐시 무관
-        // -------------------------------
-        // (옵션) 빠른 스킵: 상단이 대상인 칼럼이 하나라도 남아있는지 확인
-        // 필요 시 이 블록에서 플래그를 돌려 이후 호출에서 사용자 로직이 참조 가능
-
-        // ===== 내부 스냅샷 유틸 (함수 내에 정의) =====
-        function _makeSnapshot() {
-            const snap = new Array(NX);
-            for (let i = 0; i < NX; i++) {
-                snap[i] = new Array(NY);
-                for (let j = 0; j < NY; j++) {
-                    const col = this.cols[i][j];
-                    if (!col.length) { snap[i][j] = []; continue; }
-                    const tmp = new Array(col.length);
-                    for (let s = 0; s < col.length; s++) {
-                        const seg = col[s];
-                        tmp[s] = [seg[0], seg[1], seg[2]]; // 깊은복사
-                    }
-                    snap[i][j] = tmp;
-                }
-            }
-            return snap;
-        }
-        function _restoreSnapshot(snap) {
-            for (let i = 0; i < NX; i++) {
-                for (let j = 0; j < NY; j++) {
-                    const src = snap[i][j];
-                    if (!src || src.length === 0) { this.cols[i][j] = []; continue; }
-                    const dst = new Array(src.length);
-                    for (let s = 0; s < src.length; s++) {
-                        const seg = src[s];
-                        dst[s] = [seg[0], seg[1], seg[2]];
-                    }
-                    this.cols[i][j] = dst;
-                }
-            }
-        }
-    }
-
-    // ColumnGrid 클래스 내부에 추가
-    strip_connected(mat) {
-        const NX = this.NX, NY = this.NY;
-        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-        const eps = 1e-9;
-
-        // --- visited & mark arrays ---
-        const visited = new Array(NX);
-        const mark = new Array(NX);
-        for (let i = 0; i < NX; i++) {
-            visited[i] = new Array(NY);
-            mark[i] = new Array(NY);
-            for (let j = 0; j < NY; j++) {
-                const L = this.cols[i][j].length;
-                visited[i][j] = new Uint8Array(L);
-                mark[i][j] = new Uint8Array(L);
-            }
-        }
-
-        const q = [];
-
-        // --- helper: overlap check ---
-        const overlap = (a0, a1, b0, b1) => (a0 < b1 - eps) && (b0 < a1 - eps);
-
-        // --- helper: check side exposure (lateral, top, bottom) ---
-        const isExposed = (i, j, z0, z1) => {
-            // ① 바닥 접촉 (아래 경계)
-            if (z0 <= eps) return true;
-
-            // ② 위쪽 노출 (최상단)
-            const col = this.cols[i][j];
-            if (col.length && Math.abs(z1 - col[col.length - 1][2]) < eps) return true;
-
-            // ③ 옆면 노출
-            for (const [di, dj] of dirs) {
-                const ni = i + di, nj = j + dj;
-                if (ni < 0 || ni >= NX || nj < 0 || nj >= NY) return true; // 경계 = 외기
-                const ncol = this.cols[ni][nj];
-                if (!ncol.length) return true; // 옆이 비어 있음
-                const nTop = ncol[ncol.length - 1][2];
-                if (nTop < z1 - eps) return true; // 옆의 높이가 더 낮음 → 공기 접촉
-            }
-            return false;
-        };
-
-        // --- ① seed 탐색 ---
-        for (let i = 0; i < NX; i++) {
-            for (let j = 0; j < NY; j++) {
-                const arr = this.cols[i][j];
-                for (let k = 0; k < arr.length; k++) {
-                    const [m, z0, z1] = arr[k];
-                    if (m !== mat) continue;
-                    if (isExposed(i, j, z0, z1)) {
-                        q.push([i, j, k]);
-                        visited[i][j][k] = 1;
-                        mark[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-
-        // --- ② flood-fill (BFS) ---
-        while (q.length) {
-            const [i, j, k] = q.pop();
-            const seg = this.cols[i][j][k];
-            if (!seg) continue;
-            const [m, z0, z1] = seg;
-
-            for (const [di, dj] of dirs) {
-                const ni = i + di, nj = j + dj;
-                if (ni < 0 || ni >= NX || nj < 0 || nj >= NY) continue;
-
-                const ncol = this.cols[ni][nj];
-                for (let kk = 0; kk < ncol.length; kk++) {
-                    if (visited[ni][nj][kk]) continue;
-                    const [m2, z0b, z1b] = ncol[kk];
-                    if (m2 !== mat) continue;
-                    if (!overlap(z0, z1, z0b, z1b)) continue;
-
-                    visited[ni][nj][kk] = 1;
-                    mark[ni][nj][kk] = 1;
-                    q.push([ni, nj, kk]);
-                }
-            }
-        }
-
-        // --- ③ 제거 적용 ---
-        for (let i = 0; i < NX; i++) {
-            for (let j = 0; j < NY; j++) {
-                const arr = this.cols[i][j];
-                if (!arr.length) continue;
-                const kept = [];
-                for (let k = 0; k < arr.length; k++) {
-                    if (mark[i][j][k]) continue; // 제거된 segment skip
-                    kept.push(arr[k]);
-                }
-                this.cols[i][j] = kept;
-            }
-        }
-    }
-
-    identify_cavity() {
-        const NX = this.NX, NY = this.NY;
-        const eps = 1e-9;
-
-        // ① gap(틈)을 cavity 후보로 채움
-        for (let i = 0; i < NX; i++) {
-            for (let j = 0; j < NY; j++) {
-                const col = this.cols[i][j];
-                if (!col.length) continue;
-
-                const newCol = [];
-                let lastZ = 0;
-
-                for (const [m, z0, z1] of col) {
-                    // 이전 레이어와 현재 레이어 사이에 gap이 있으면 cavity 삽입
-                    if (z0 > lastZ + eps) {
-                        newCol.push(['cavity', lastZ, z0]);
-                    }
-                    newCol.push([m, z0, z1]);
-                    lastZ = z1;
-                }
-
-                // 최상단 위로도 빈공간(cavity) 확장 (선택사항)
-                const top = col[col.length - 1][2];
-                const Hmax = this.maxHeight();
-                if (Hmax > top + eps) {
-                    newCol.push(['cavity', top, Hmax]);
-                }
-
-                this.cols[i][j] = newCol;
-            }
-        }
-
-        // ② 외기와 연결된 cavity 제거
-        this.strip_connected('cavity');
-
-        // ③ cavity가 아닌 material layer들은 그대로 유지, cavity 남은 것만 진짜 cavity
-        // 이 단계에서 cavity는 외부와 완전히 단절된 내부 cavity
-        // 필요 시 cavity layer를 mark하거나 통계 계산 가능.
-    }
-
-
-    // ===== 내부 유틸: 버퍼 확보/재사용 =====
-    _ensureBuf(name, length, kind = 'u8') {
-        const C = kind === 'f32' ? Float32Array : Uint8Array;
-        if (!this[name] || this[name].length < length) this[name] = new C(length);
-        return this[name];
-    }
-
-    // ===== 커널 캐시: 배열 기반 (Map 제거) + LRU 제한(옵션) =====
-    _getConformalKernelArray(t, S, dx, dy) {
-        this._confKernelCacheArr = this._confKernelCacheArr || new Map();
-        const key = `${(t * 1000 | 0)}|${(S * 1000 | 0)}|${(dx * 1000 | 0)}|${(dy * 1000 | 0)}`;
-        const hit = this._confKernelCacheArr.get(key);
-        if (hit) return hit;
-
-        const Rx = Math.ceil(t / dx), Ry = Math.ceil(t / dy);
-        const t2 = t * t, Sinv = 1 / Math.max(S, 1e-6);
-        const rows = new Array(Rx * 2 + 1); // rows[du+Rx] = Float32Array[dv0, add0, dv1, add1, ...]
-        const dx2 = dx * dx, dy2 = dy * dy;
-
-        for (let du = -Rx; du <= Rx; du++) {
-            const row = [];
-            const du2dx2 = du * du * dx2;
-            for (let dv = -Ry; dv <= Ry; dv++) {
-                // r_lat = sqrt(du^2*dx^2 + dv^2*dy^2) * Sinv
-                const r2 = du2dx2 + dv * dv * dy2;
-                const r_lat = Math.sqrt(r2) * Sinv;
-                if (r_lat <= t + 1e-9) {
-                    const add = Math.sqrt(Math.max(0, t2 - r_lat * r_lat));
-                    row.push(dv | 0, add);
-                }
-            }
-            rows[du + Rx] = row.length ? Float32Array.from(row) : new Float32Array(0);
-        }
-
-        const kernel = { Rx, Ry, rows, baseAdd: t };
-        // LRU 제한을 원하면 최근 32개만 유지
-        this._confKernelCacheArr.set(key, kernel);
-        if (this._confKernelCacheArr.size > 32) {
-            const firstKey = this._confKernelCacheArr.keys().next().value;
-            this._confKernelCacheArr.delete(firstKey);
-        }
-        return kernel;
-    }
-
-    // ===== 패딩된 높이맵 만들기 (경계 체크 제거) =====
-    _buildPaddedH(H, NX, NY, Rx, Ry) {
-        const W = NX + 2 * Rx, Hh = NY + 2 * Ry; // padded width/height
-        const pad = this._ensureBuf('_bufPad', W * Hh);
-
-        // 중앙 복사
-        for (let i = 0; i < NX; i++) {
-            const srcBase = i * NY;
-            const dstBase = (i + Rx) * Hh + Ry;
-            pad.set(H.subarray(srcBase, srcBase + NY), dstBase);
-        }
-
-        // 위/아래 패드: 가장자리 값을 복제(클램프 패드)
-        for (let i = Rx; i < Rx + NX; i++) {
-            // 위쪽 Ry칸을 첫행값으로 채움
-            const base = i * Hh;
-            const first = pad[base + Ry];
-            for (let j = 0; j < Ry; j++) pad[base + j] = first;
-            // 아래쪽 Ry칸을 마지막행값으로 채움
-            const last = pad[base + Ry + NY - 1];
-            for (let j = Ry + NY; j < Ry + NY + Ry; j++) pad[base + j] = last;
-        }
-
-        // 좌/우 패드
-        for (let j = 0; j < Hh; j++) {
-            const leftVal = pad[Rx * Hh + j];
-            const rightVal = pad[(Rx + NX - 1) * Hh + j];
-            for (let i = 0; i < Rx; i++) pad[i * Hh + j] = leftVal;                   // 왼쪽
-            for (let i = Rx + NX; i < Rx + NX + Rx; i++) pad[i * Hh + j] = rightVal;        // 오른쪽
-        }
-
-        return { pad, W, Hh };
-    }
-
-    // ===== 최적화된 정확 컨포멀 증착 =====
-    deposit_general(maskFn, mat, thickness, conformality) {
-        const t = Math.max(0, Number(thickness) || 0);
-        if (t <= 0) return;
-
-        const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy;
-        const S = this._clamp(Number(conformality ?? 1.0), 0, 1);
-        const latRange = t * S;
-
-        // ---- 빠른 경로: 사실상 수직 ---
-        if (latRange < Math.min(dx, dy)) {
-            for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
-                const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                if (maskFn && !maskFn(x, y)) continue;
-                this._applyDepositAt(i, j, mat, t);
-            }
-            return;
-        }
-
-        // ---- 높이맵 H 준비 (재사용 버퍼) ---
-        const H = this._ensureBuf('_bufH', NX * NY);
-        for (let i = 0; i < NX; i++) {
-            const ii = i * NY;
-            for (let j = 0; j < NY; j++) {
-                const col = this.cols[i][j];
-                H[ii + j] = col.length ? col[col.length - 1][2] : 0; // topZ
-            }
-        }
-
-        // ---- 커널 / 패딩 ----
-        const { Rx, rows, baseAdd } = this._getConformalKernelArray(t, S, dx, dy);
-        const { pad: HPad, W: PW, Hh: PH } = this._buildPaddedH(H, NX, NY, Rx, Rx); // Ry≈Rx로 패딩(간단화)
-
-        // ---- 활성 bbox 계산 (mask sparse 최적화) ----
-        let iMin = 0, iMax = NX - 1, jMin = 0, jMax = NY - 1;
-        if (maskFn) {
-            let found = false, _iMin = NX, _iMax = -1, _jMin = NY, _jMax = -1;
-            for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
-                const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                if (maskFn(x, y)) {
-                    found = true;
-                    if (i < _iMin) _iMin = i; if (i > _iMax) _iMax = i;
-                    if (j < _jMin) _jMin = j; if (j > _jMax) _jMax = j;
-                }
-            }
-            if (!found) return;
-            iMin = Math.max(0, _iMin - Rx);
-            iMax = Math.min(NX - 1, _iMax + Rx);
-            jMin = Math.max(0, _jMin - Rx);
-            jMax = Math.min(NY - 1, _jMax + Rx);
-        }
-
-        // ---- 팽창 표면 계산 (경계체크 제거된 버전) ----
-        const Hp = this._ensureBuf('_bufHp', NX * NY);
-        if (maskFn) {
-            for (let i = 0; i < NX; i++) {
-                const ii = i * NY;
-                for (let j = 0; j < NY; j++) {
-                    const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                    Hp[ii + j] = maskFn(x, y) ? (H[ii + j] + baseAdd) : H[ii + j];
-                }
-            }
-        } else {
-            for (let idx = 0; idx < NX * NY; idx++) Hp[idx] = H[idx] + baseAdd;
-        }
-
-        for (let i = iMin; i <= iMax; i++) {
-            const ii = i * NY;
-            const ip = i + Rx;
-            for (let j = jMin; j <= jMax; j++) {
-                const x = (i + 0.5) * dx, y = (j + 0.5) * dy;
-                if (maskFn && !maskFn(x, y)) continue;
-
-                let m = Hp[ii + j]; // H + t 기본 기여
-                const jp = j + Rx;
-                for (let du = -Rx; du <= Rx; du++) {
-                    const row = rows[du + Rx];
-                    if (!row.length) continue;
-                    const base = (ip + du) * PH;
-                    const center = base + jp;
-                    for (let k = 0; k < row.length; k += 2) {
-                        const dv = row[k] | 0;
-                        const add = row[k + 1];
-                        const cand = HPad[center + dv] + add;
-                        if (cand > m) m = cand;
-                    }
-                }
-                Hp[ii + j] = m;
-            }
-        }
-
-        // ---- Δz 적용 (명시형 구조용) ----
-        for (let i = iMin; i <= iMax; i++) {
-            const ii = i * NY;
-            for (let j = jMin; j <= jMax; j++) {
-                const newTop = Hp[ii + j];
-                const oldTop = H[ii + j];
-                const dz = newTop - oldTop;
-                if (dz <= 1e-9) continue;
-
-                // --- 완전 명시형 반영 ---
-                const col = this.cols[i][j];
-                if (!col.length) {
-                    col.push([mat, 0, newTop]);
-                    continue;
-                }
-
-                const top = col[col.length - 1];
-                const topZ = top[2];
-
-                if (top[0] === mat) {
-                    top[2] = newTop;
-                } else {
-                    col.push([mat, topZ, newTop]);
                 }
             }
         }
@@ -879,122 +813,18 @@ class ColumnGrid {
 
 
 
-    // ===== 공용 버퍼 헬퍼 (재사용) =====
-    _ensureBuf(name, length, kind = 'u8') {
-        const ctor = kind === 'f32' ? Float32Array : Uint8Array;
-        if (!this[name] || this[name].length < length) this[name] = new ctor(length);
-        return this[name];
-    }
 
-    // ===== SE(구형 구조요소) 캐시 =====
-    _getALDStructElem(t, dx, dy, dz) {
-        this._aldSECache = this._aldSECache || new Map();
-        const key = `${(t * 1000 | 0)}|${(dx * 1000 | 0)}|${(dy * 1000 | 0)}|${(dz * 1000 | 0)}`;
-        const hit = this._aldSECache.get(key);
-        if (hit) return hit;
 
-        const Rx = Math.ceil(t / dx), Ry = Math.ceil(t / dy), Rz = Math.ceil(t / dz);
-        const t2 = t * t;
-        const se = [];
-        for (let du = -Rx; du <= Rx; du++) {
-            const x2 = (du * dx) * (du * dx);
-            for (let dv = -Ry; dv <= Ry; dv++) {
-                const xy2 = x2 + (dv * dy) * (dv * dy);
-                for (let dw = -Rz; dw <= Rz; dw++) {
-                    const r2 = xy2 + (dw * dz) * (dw * dz);
-                    if (r2 <= t2 + 1e-9) se.push([du, dv, dw]);
-                }
-            }
-        }
-        const out = { se, Rx, Ry, Rz };
-        this._aldSECache.set(key, out);
-        if (this._aldSECache.size > 32) this._aldSECache.delete(this._aldSECache.keys().next().value);
-        return out;
-    }
+}
 
-    // ===== 활성 XY BBox 계산 (마스크/실제 스택 기반) =====
-    _getActiveXYBBox(maskFn, margin) {
-        const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy;
-        let imin = NX, imax = -1, jmin = NY, jmax = -1, found = false;
 
-        for (let i = 0; i < NX; i++) {
-            const ii = i * NY;
-            for (let j = 0; j < NY; j++) {
-                const hasStack = this.cols[i][j].length > 0;
-                const inMask = !maskFn || maskFn((i + 0.5) * dx, (j + 0.5) * dy);
-                if ((hasStack || inMask)) {
-                    found = true;
-                    if (i < imin) imin = i; if (i > imax) imax = i;
-                    if (j < jmin) jmin = j; if (j > jmax) jmax = j;
-                }
-            }
-        }
-        if (!found) return null;
-        imin = Math.max(0, imin - margin);
-        imax = Math.min(NX - 1, imax + margin);
-        jmin = Math.max(0, jmin - margin);
-        jmax = Math.min(NY - 1, jmax + margin);
-        return { imin, imax, jmin, jmax };
-    }
 
-    // ==== 고속 ALD : 캐시 + pow2 큐 + SE 양자화 ====
-    deposit_ALD(maskFn, mat, thickness, opts = {}) {
 
-        function _nextPow2(n) { return 1 << (32 - Math.clz32(Math.max(2, n - 1))); }
-        const OFFS4_2D = new Int8Array([1, 0, -1, 0, 0, 1, 0, -1]);
-        const OFFS8_2D = new Int8Array([1, 0, -1, 0, 0, 1, 0, -1, 1, 1, 1, -1, -1, 1, -1, -1]);
-        const OFFS6_3D = new Int8Array([1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1]);
-        const t = Math.max(0, Number(thickness) || 0); if (t <= 0) return;
 
-        const NX = this.NX, NY = this.NY, dx = this.dx, dy = this.dy, eps = 1e-9;
-        const useCache = !!opts.isCache;
-        const use8 = !!opts.use8;            // XY 8-연결(플러드필)
-        const frontier26 = !!opts.frontier26;    // 프런티어 26-연결
-        const dz = Math.max(1e-6, Number(opts.dz) || Math.min(dx, dy, Math.max(t / 3, 1e-6)));
-        const seQuant = (opts.seQuant != null) ? Number(opts.seQuant) : dz;  // 커널 양자화 그리드
-        const bridgeTol = (opts.bridgeTol != null) ? Number(opts.bridgeTol) : (0.6 * dz);
-        const mergeEps = (opts.mergeEps != null) ? Number(opts.mergeEps) : (0.6 * dz);
 
-        // 1) 활성 bbox (동일)
-        const margin = Math.max(1, Math.ceil(t / Math.min(dx, dy)));
-        const bbox = this._getActiveXYBBox(maskFn, margin);
-        if (!bbox) return;
-        const { imin, imax, jmin, jmax } = bbox;
-        const BX = imax - imin + 1, BY = jmax - jmin + 1;
 
-        // 2) Z 범위 (동일)
-        let zTopMax = 0;
-        for (let i = imin; i <= imax; i++) {
-            for (let j = jmin; j <= jmax; j++) {
-                const col = this.cols[i][j];
-                if (col.length) zTopMax = Math.max(zTopMax, col[col.length - 1][2]);
-            }
-        }
-        const ZMAX = zTopMax + t + 1e-6;
-        const NZ = Math.max(1, Math.ceil(ZMAX / dz));
-        const strideY = NZ, strideX = BY * NZ, voxCount = BX * BY * NZ;
 
-        // 3) 캐시 슬롯
-        this._aldCache = this._aldCache || {};
-        const slot = this._aldCache || (this._aldCache = {});
-        slot.meta = { BX, BY, NZ, dz, imin, imax, jmin, jmax, strideX, strideY, voxCount }; // 메타 동기화
-
-        // 4) solidOld (Zero-copy 재사용; 비캐시 시 계산)
-        let solidOld;
-        if (useCache && slot.solidOld && slot.solidOld.length === voxCount) {
-            solidOld = slot.solidOld;                  // ✅ zero-copy 참조
-        } else {
-            solidOld = new Uint8Array(voxCount);
-            for (let i = imin; i <= imax; i++) {
-                const ii = i - imin;
-                for (let j = jmin; j <= jmax; j++) {
-                    const jj = j - jmin, col = this.cols[i][j];
-                    const base = ii * strideX + jj * strideY;
-                    for (let s = 0; s < col.length; s++) {
-                        const [m, z0, z1] = col[s];
-                        if (z1 <= z0 + eps) continue;
-                        let k0 = (z0 + eps) / dz | 0; if (k0 < 0) k0 = 0;
-                        let k1 = Math.ceil((z1 - eps) / dz); if (k1 > NZ) k1 = NZ;
-                        for (let k = k0; k < k1; k++) solidOld[base + k] = 1;
-                    }
-                }
+/* --- 부팅 --- */
+window.addEventListener('DOMContentLoaded', () => {
+    window.prj.ColumnGrid = ColumnGrid;
+});
