@@ -279,7 +279,9 @@ class ColumnGrid {
     /* ============================
      * 기본 유틸
      * ============================ */
-    _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    _clamp(v, lo, hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
 
     _ensureBuf(name, length, kind = 'f32') {
         const C = (kind === 'f32') ? Float32Array : (kind === 'u8' ? Uint8Array : Uint16Array);
@@ -509,6 +511,9 @@ class ColumnGrid {
                 this._depoAtTop_(i, j, matId, dz);
             }
         }
+
+
+        this.identify_cavity();
     }
 
     /* ===========================================================
@@ -521,31 +526,41 @@ class ColumnGrid {
     _applyEtchAt(i, j, matId, dz, isAll = false) {
         if (dz <= 0) return;
 
-        const cidx = i * this.NY + j;
-        let remaining = dz;
+        const NY = this.NY, Lmax = this.Lmax;
+        const cidx = i * NY + j;
+        const cols = this.cols;
 
-        while (remaining > 1e-9 && this.cols.len[cidx] > 0) {
-            const topIdx = this.cols.len[cidx] - 1;
-            const base = cidx * this.Lmax + topIdx;
-            const mat = this.cols.mat[base];
-            if (!isAll && mat !== matId) break;
+        let remaining = dz;
+        const eps = 1e-9;
+
+        while (remaining > eps && cols.len[cidx] > 0) {
+            const topIdx = cols.len[cidx] - 1;
+            const base = cidx * Lmax + topIdx;
+            const curMat = cols.mat[base];
+            if (!isAll && curMat !== matId) break;
 
             const zBase = base * 2;
-            const z0 = this._dequantizeZ(this.cols.zpair[zBase]);
-            const z1 = this._dequantizeZ(this.cols.zpair[zBase + 1]);
+            const z0 = this._dequantizeZ(cols.zpair[zBase]);
+            const z1 = this._dequantizeZ(cols.zpair[zBase + 1]);
             const thick = z1 - z0;
 
-            if (remaining < thick - 1e-9) {
-                // 부분 식각
-                this.cols.zpair[zBase + 1] = this._quantizeZ(z1 - remaining);
+            if (remaining < thick - eps) {
+                // --- 부분 식각 ---
+                cols.zpair[zBase + 1] = this._quantizeZ(z1 - remaining);
                 remaining = 0;
             } else {
-                // 전체 레이어 제거
+                // --- 전체 레이어 제거 ---
                 remaining -= thick;
-                this.cols.len[cidx] = topIdx;
+                cols.len[cidx] = topIdx;
+
+                // 삭제된 위치 초기화 (데이터 클리어)
+                cols.mat[base] = 0;
+                cols.zpair[zBase] = 0;
+                cols.zpair[zBase + 1] = 0;
             }
         }
     }
+
 
 
     /* ===========================================================
@@ -783,48 +798,202 @@ class ColumnGrid {
                     if (z1 <= limitZ + eps) break; // 이미 충분히 낮음
 
                     if (z0 < limitZ - eps) {
-                        // 일부만 깎임 → z1을 limitZ로 절단
+                        // --- 일부만 깎임 → z1을 limitZ로 절단 ---
                         cols.zpair[zBase + 1] = this._quantizeZ(limitZ);
                         break;
                     } else {
-                        // 전층 제거
+                        // --- 전층 제거 ---
                         len -= 1;
+                        // 제거된 세그먼트 클리어
+                        cols.mat[base] = 0;
+                        cols.zpair[zBase] = 0;
+                        cols.zpair[zBase + 1] = 0;
                     }
                 }
 
                 // ===== ⑥ 업데이트 및 정리 =====
                 cols.len[cidx] = len;
 
+                // 두께 0 이하 세그먼트 정리
                 if (len > 0) {
                     const topIdx = len - 1;
                     const base = cidx * Lmax + topIdx;
                     const zBase = base * 2;
-                    const z0 = cols.zpair[zBase];
-                    const z1 = cols.zpair[zBase + 1];
-                    if (z1 <= z0 + 1) {
-                        // 두께 0 이하 → pop
+                    const z0q = cols.zpair[zBase];
+                    const z1q = cols.zpair[zBase + 1];
+                    if (z1q <= z0q) {
+                        // 두께 0 → 삭제
                         cols.len[cidx] = len - 1;
+                        cols.mat[base] = 0;
+                        cols.zpair[zBase] = 0;
+                        cols.zpair[zBase + 1] = 0;
                     }
+                }
+            }
+        }
+
+
+        this.identify_cavity();
+    }
+
+
+
+    /* ===========================================================
+       연결된 동일 물질(matId)의 노출 영역(공기와 접촉된 부분)을 flood-fill로 제거
+       - matId: 제거할 재료 ID (Uint8)
+       =========================================================== */
+    strip_connected(matId) {
+        const NX = this.NX, NY = this.NY, Lmax = this.Lmax;
+        const cols = this.cols;
+        const eps = 1e-9;
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+        const Ncols = NX * NY;
+        const visited = new Uint8Array(Ncols * Lmax);
+        const mark = new Uint8Array(Ncols * Lmax);
+        const q = [];
+
+        // --- overlap check ---
+        const overlap = (a0, a1, b0, b1) => (a0 < b1 - eps) && (b0 < a1 - eps);
+
+        // --- side/top exposure check ---
+        const isExposed = (i, j, z0, z1) => {
+            // ① 바닥: 공기 노출 아님!
+            if (z0 <= eps) return false;
+
+            const cidx = i * NY + j;
+            const L = cols.len[cidx];
+            const baseTop = cidx * Lmax + (L - 1);
+            const zTop = this._dequantizeZ(cols.zpair[baseTop * 2 + 1]);
+            // ② 최상단 노출
+            if (Math.abs(z1 - zTop) < eps) return true;
+
+            // ③ 측면 노출
+            for (const [di, dj] of dirs) {
+                const ni = i + di, nj = j + dj;
+                if (ni < 0 || ni >= NX || nj < 0 || nj >= NY) return false; // 옆면 경계: 공기 노출 아님!
+                const nidx = ni * NY + nj;
+                const nL = cols.len[nidx];
+                if (nL === 0) return true; // 이웃이 비었으면 공기 노출
+                const nTopBase = nidx * Lmax + (nL - 1);
+                const nTop = this._dequantizeZ(cols.zpair[nTopBase * 2 + 1]);
+                if (nTop < z1 - eps) return true;
+            }
+            return false;
+        };
+
+        // ==========================================================
+        // ① Seed 탐색: 공기 접촉된 동일 물질 segment를 큐에 push
+        // ==========================================================
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                const L = cols.len[cidx];
+                for (let k = 0; k < L; k++) {
+                    const base = cidx * Lmax + k;
+                    if (cols.mat[base] !== matId) continue;
+
+                    const zBase = base * 2;
+                    const z0 = this._dequantizeZ(cols.zpair[zBase]);
+                    const z1 = this._dequantizeZ(cols.zpair[zBase + 1]);
+                    if (!isExposed(i, j, z0, z1)) continue;
+
+                    const flatIdx = base;
+                    visited[flatIdx] = 1;
+                    mark[flatIdx] = 1;
+                    q.push([i, j, k]);
+                }
+            }
+        }
+
+        // ==========================================================
+        // ② Flood-fill (BFS)
+        // ==========================================================
+        while (q.length) {
+            const [i, j, k] = q.pop();
+            const cidx = i * NY + j;
+            const base = cidx * Lmax + k;
+            const zBase = base * 2;
+
+            const z0 = this._dequantizeZ(cols.zpair[zBase]);
+            const z1 = this._dequantizeZ(cols.zpair[zBase + 1]);
+
+            for (const [di, dj] of dirs) {
+                const ni = i + di, nj = j + dj;
+                if (ni < 0 || ni >= NX || nj < 0 || nj >= NY) continue;
+
+                const nidx = ni * NY + nj;
+                const nL = cols.len[nidx];
+                for (let kk = 0; kk < nL; kk++) {
+                    const nbase = nidx * Lmax + kk;
+                    const flatIdx = nbase;
+                    if (visited[flatIdx]) continue;
+                    if (cols.mat[nbase] !== matId) continue;
+
+                    const nzBase = nbase * 2;
+                    const z0b = this._dequantizeZ(cols.zpair[nzBase]);
+                    const z1b = this._dequantizeZ(cols.zpair[nzBase + 1]);
+                    if (!overlap(z0, z1, z0b, z1b)) continue;
+
+                    visited[flatIdx] = 1;
+                    mark[flatIdx] = 1;
+                    q.push([ni, nj, kk]);
+                }
+            }
+        }
+
+        // ==========================================================
+        // ③ 제거 적용
+        // ==========================================================
+        for (let i = 0; i < NX; i++) {
+            for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                const L = cols.len[cidx];
+                if (L === 0) continue;
+
+                let writePtr = 0;
+                for (let k = 0; k < L; k++) {
+                    const base = cidx * Lmax + k;
+                    if (mark[base]) continue; // 제거 대상 skip
+                    if (writePtr !== k) {
+                        // 압축 (남은 세그먼트를 앞으로 이동)
+                        const src = base * 2, dst = (cidx * Lmax + writePtr) * 2;
+                        cols.mat[cidx * Lmax + writePtr] = cols.mat[base];
+                        cols.zpair[dst] = cols.zpair[src];
+                        cols.zpair[dst + 1] = cols.zpair[src + 1];
+                    }
+                    writePtr++;
+                }
+                cols.len[cidx] = writePtr;
+
+                // --- 남은 구간 클리어
+                for (let k = writePtr; k < L; k++) {
+                    const base = cidx * Lmax + k;
+                    const zBase = base * 2;
+                    cols.mat[base] = 0;
+                    cols.zpair[zBase] = 0;
+                    cols.zpair[zBase + 1] = 0;
                 }
             }
         }
     }
 
+    /* ===========================================================
+       Identify and fill enclosed air gaps with dummy "cavity" layers.
+       - Step1: fill vertical gaps with cavity segments
+       - Step2: remove exposed cavities (connected to air)
+       - Step3: keep enclosed cavities
+       =========================================================== */
+    identify_cavity() {
+        const NX = this.NX, NY = this.NY, Lmax = this.Lmax;
+        const cols = this.cols;
+        const eps = 1e-9;
+        const CAVITY_ID = 2; // cavity = 2 (air=1, real mats≥3)
 
+        // ===== ① 틈(gap) 부분 cavity로 채우기 =====
+        const Hmax = this.maxHeight(); // 전체 도메인 내 최대 높이
 
-
-
-
-}
-
-
-
-
-
-
-
-
-/* --- 부팅 --- */
-window.addEventListener('DOMContentLoaded', () => {
-    window.prj.ColumnGrid = ColumnGrid;
-});
+        // 새로운 버퍼 생성 (일단 기존 크기와 동일)
+        const newMat = new Uint8Array(cols.mat.length);
+        const newZ = new Uint16Array(cols.zpair.length);
+        const newLen = new Uint8Array(cols.len.length);
