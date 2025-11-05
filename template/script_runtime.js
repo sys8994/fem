@@ -149,7 +149,7 @@ class GridRenderer {
                 const base = cidx * Lmax;
                 for (let k = 0; k < layers; k++) {
                     const midx = mat[base + k];
-                    if (midx === 0) continue; // 0=empty
+                    if (midx <= 2) continue; // 0=empty, 1=air, 2 = air cavity
 
                     const zBase = (base + k) * 2;
                     const z0 = grid._dequantizeZ(zpair[zBase]);
@@ -349,8 +349,8 @@ class ProcessRuntime {
         } else if (kind === 'DEPO') {
             grid.deposit_general(maskfun, mat, thk, conformality);
         } else if (kind === 'ALD') {
-            let opts = { isCache: false }
-            grid.deposit_ALD(maskfun, mat, thk, opts);
+            let opts = { isCache: useProcCache }
+            grid.deposit_ALD(mat, thk, opts);
 
         } else if (kind === 'ETCH') {
             grid.etch_general(maskfun, mat, thk, conformality);
@@ -362,7 +362,7 @@ class ProcessRuntime {
         } else if (kind === 'STRIP') {
             grid.strip_connected(mat);
         } else if (kind === 'CMP') {
-            grid.cmp(thk, step.material);
+            grid.cmp(thk, mat);
         }
     }
 
@@ -488,6 +488,19 @@ class ProcessRuntime {
 
         this.oldUpto = upto;
         this.renderer3D.updateFromGrid(this.grid, snapshot?.materialColor || {});
+
+        // let k = [];
+        // let k2 = [];
+        // let k3 = [];
+        // for (let a = 0; a < 10; a++) {
+        //     let idxx = this.grid._segIndex(50,50,a)
+        //     let idxx2 = this.grid._colIndex(50,50)
+        //     // k.push(`mat:${this.grid.cols.mat[idxx]}, z:${this.grid.cols.zpair[idxx*2]}~${this.grid.cols.zpair[idxx*2+1]}`)
+        //     if (this.grid.cols.mat[idxx]===0) continue
+        //     console.log(`mat:${this.grid.cols.mat[idxx]}, z:${this.grid.cols.zpair[idxx*2]}~${this.grid.cols.zpair[idxx*2+1]}, len:${this.grid.cols.len[idxx2]}`)
+        // }
+
+        // console.log(`-----------------------:`)       
 
     }
 
