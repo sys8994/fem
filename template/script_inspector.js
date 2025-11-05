@@ -623,71 +623,87 @@ class Inspector {
     for (const m of Array.from(this.openMenus)) this._closeMenu(m);
   }
 
-  /* ========== 슬라이더 빌더 ========== */
+/* ========== 슬라이더 빌더 (with throttle) ========== */
+_makeSliderRow(input) {
+  const { label, min, max, val, onChange, step, procid } = input;
+  const row = document.createElement('div');
+  row.className = 'insp-row';
 
-  _makeSliderRow(input) {
-    const {label, min, max, val, onChange, step, procid} = input;
-    const row = document.createElement('div');
-    row.className = 'insp-row';
+  const lab = document.createElement('div');
+  lab.className = 'insp-label';
+  lab.textContent = label;
+  row.appendChild(lab);
 
-    const lab = document.createElement('div');
-    lab.className = 'insp-label';
-    lab.textContent = label;
-    row.appendChild(lab);
+  const wrap = document.createElement('div');
+  wrap.className = 'slider-box';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'slider-box';
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.min = min; range.max = max; range.step = step; range.value = val;
 
-    const range = document.createElement('input');
-    range.type = 'range';
-    range.min = min; range.max = max; range.step = step; range.value = val;
+  const num = document.createElement('input');
+  num.type = 'number';
+  num.min = min; num.max = max; num.step = step; num.value = val;
 
-    const num = document.createElement('input');
-    num.type = 'number';
-    num.min = min; num.max = max; num.step = step; num.value = val;
-
-    function sync(v,typ) { 
-      range.value = v; 
-      num.value = v;       
-      onChange(Number(v),typ); 
+  // --- ✅ 쓰로틀 헬퍼 ---
+  function throttle(fn, limit = 50) {
+    let inThrottle = false;
+    return function (...args) {
+      if (!inThrottle) {
+        fn.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => (inThrottle = false), limit);
+      }
     };
-
-    this.isDragging = false;
-    range.addEventListener('mousedown',(e) => {
-      e.stopPropagation(); 
-      this.isDragging = true;
-      this.inspectedProcId = procid;
-      this.flow._commitHistory(); 
-      sync(range.value,'sliderdown');
-
-    })
-
-    range.addEventListener('mousemove',(e) => {
-      e.stopPropagation(); 
-      if (!this.isDragging) return;
-      this.inspectedProcId = procid;
-      sync(range.value,'slidermove');
-    })
-
-    range.addEventListener('mouseup',(e) => {
-      e.stopPropagation(); 
-      if (!this.isDragging) return;
-      this.isDragging = false;
-      this.inspectedProcId = procid;
-      sync(range.value,'sliderup');
-    })
-
-    num.addEventListener('change', (e) => {
-      e.stopPropagation(); 
-      this.flow._commitHistory(); 
-      this.inspectedProcId = procid;
-      sync(num.value,'inspector');
-    });
-
-    wrap.append(range, num);
-    row.appendChild(wrap);
-    return row;
   }
+
+  const sync = (v, typ) => {
+    range.value = v;
+    num.value = v;
+    onChange(Number(v), typ);
+  };
+
+  // --- ✅ 디바운스 대신 쓰로틀 적용 ---
+  const syncThrottled = throttle(sync, 40); // 약 25FPS
+
+  this.isDragging = false;
+
+  range.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    this.isDragging = true;
+    this.inspectedProcId = procid;
+    this.flow._commitHistory();
+    sync(range.value, 'sliderdown');
+  });
+
+  range.addEventListener('mousemove', (e) => {
+    e.stopPropagation();
+    if (!this.isDragging) return;
+    this.inspectedProcId = procid;
+    // --- 🔽 디바운스 → 쓰로틀로 교체 ---
+    syncThrottled(range.value, 'slidermove');
+  });
+
+  range.addEventListener('mouseup', (e) => {
+    e.stopPropagation();
+    if (!this.isDragging) return;
+    this.isDragging = false;
+    this.inspectedProcId = procid;
+    sync(range.value, 'sliderup');
+  });
+
+  num.addEventListener('change', (e) => {
+    e.stopPropagation();
+    this.flow._commitHistory();
+    this.inspectedProcId = procid;
+    sync(num.value, 'inspector');
+  });
+
+  wrap.append(range, num);
+  row.appendChild(wrap);
+  return row;
+}
+
 
   /* ========== 3D 런타임 이벤트 ========== */
 
