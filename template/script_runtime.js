@@ -366,25 +366,10 @@ class ProcessRuntime {
         }
     }
 
-    _createGridStepCache(nstep) {
-        const nMaxCache = 10;
-        while (Object.keys(this.grid.colsCache).length >= nMaxCache) {
-            // 제거 대상 후보 key 목록 (keepKey 제외)
-            const candidates = Object.entries(this.grid.colsCache)
-                .filter(([key]) => key !== keepKey)
-                .map(([key, [obj, num]]) => ({ key, num }));
-            if (candidates.length === 0) break; // 제거할 게 없음        
-            // num이 가장 작은 항목 찾기
-            const minItem = candidates.reduce((a, b) => (a.num < b.num ? a : b));
-            // 해당 항목 삭제
-            delete this.grid.colsCache[minItem.key];
-        }
-
-        // cache 생성
-        this.grid.colsCache[nstep + 1] = [structuredClone(this.grid.cols), 0];
-    }
 
     _build(snapshot, opts) {
+
+        
 
         const processes = snapshot?.processes || [];
         const nSaveInterval = Math.max(3, Math.floor(processes.length / 10)); // sparse cache 조건: 3step 간격 이상, 최대 10개 까지
@@ -402,36 +387,35 @@ class ProcessRuntime {
 
 
 
-        this.grid.colsCache = this.grid.colsCache || {};
+        // this.grid.colsCache = this.grid.colsCache || {};
         const changedProcIndex = this._arrowGapIndex(processes, opts.procId);
         const lastCacheIndex = opts.typ === 'process' ? null :
-            opts.typ === 'explorer' ? Math.max(0, Math.max(...Object.keys(this.grid.colsCache).map(Number).filter(k => k <= nowIndex))) :
+                opts.typ === 'explorer' ? Math.max(0, Math.max(...Object.keys(this.grid.colsCache).map(Number).filter(k => k <= nowIndex))) :
                 Math.max(0, Math.max(...Object.keys(this.grid.colsCache).map(Number).filter(k => k < changedProcIndex)));
 
-        if (opts.typ === 'process') { // 공정 추가/이동/제거 변화: cache 초기화            
+
+        if (opts.typ === 'process') { // 공정 추가/이동/제거 변화: cache 초기화      
+            if (this._deepEqual(this.oldUpto, upto)) return;      
             this.grid.initializeCache();
             this.grid.createNewGrid();
         } else { // 나머지: cache 로드            
             this.grid.loadCache(lastCacheIndex);
 
-            // this.grid.cols = structuredClone(this.grid.colsCache[lastCacheIndex][0]);
         }
 
-        // if (this.grid.cols === null) this.grid.clearAll();
 
 
         if (opts.typ === 'process') {
 
-            if (this._deepEqual(this.oldUpto, upto)) return;
 
             let nStepSav = 0;
             for (let nstep = 0; nstep < nowIndex; nstep += 1) {
                 let step = processes[nstep];
                 nStepSav += 1;
                 this._applyStep(this.grid, step, false);
-                if (nStepSav === nSaveInterval) {
+                if ((nStepSav === nSaveInterval) || (['ALD','WETETCH'].includes(step.kind))) {
                     nStepSav = 0;
-                    this._createGridStepCache(nstep);
+                    this.grid.saveCache(nstep);
                 }
             }
 
@@ -455,9 +439,9 @@ class ProcessRuntime {
                 let step = processes[nstep];
                 nStepSav += 1;
                 this._applyStep(this.grid, step, false);
-                if ((nstep === (changedProcIndex - 2)) || (nStepSav === nSaveInterval)) {
+                if ((nstep === (changedProcIndex - 2)) || (nStepSav === nSaveInterval) || (['ALD','WETETCH'].includes(step.kind))) {
                     nStepSav = 0;
-                    this._createGridStepCache(nstep);
+                    this.grid.saveCache(nstep);
                 }
             }
             if (this._deepEqual(this.oldUpto, upto)) return;
@@ -471,7 +455,7 @@ class ProcessRuntime {
                 let step = processes[nstep];
                 this._applyStep(this.grid, step, false);
                 if (nstep === (changedProcIndex - 2)) {
-                    this._createGridStepCache(nstep);
+                    this.grid.saveCache(nstep);
                 }
             }
 
@@ -489,18 +473,6 @@ class ProcessRuntime {
         this.oldUpto = upto;
         this.renderer3D.updateFromGrid(this.grid, snapshot?.materialColor || {});
 
-        // let k = [];
-        // let k2 = [];
-        // let k3 = [];
-        // for (let a = 0; a < 10; a++) {
-        //     let idxx = this.grid._segIndex(50,50,a)
-        //     let idxx2 = this.grid._colIndex(50,50)
-        //     // k.push(`mat:${this.grid.cols.mat[idxx]}, z:${this.grid.cols.zpair[idxx*2]}~${this.grid.cols.zpair[idxx*2+1]}`)
-        //     if (this.grid.cols.mat[idxx]===0) continue
-        //     console.log(`mat:${this.grid.cols.mat[idxx]}, z:${this.grid.cols.zpair[idxx*2]}~${this.grid.cols.zpair[idxx*2+1]}, len:${this.grid.cols.len[idxx2]}`)
-        // }
-
-        // console.log(`-----------------------:`)       
 
     }
 
