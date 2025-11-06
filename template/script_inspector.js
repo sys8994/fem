@@ -7,7 +7,7 @@ class Inspector {
     this.openMenus = new Set();   // 열린 메뉴 DOM 집합
     this.menuBtn = new Map();   // menu -> button 매핑
 
-    
+
     this.isDragging = false;
     this.inspectedProcId = false;
 
@@ -23,7 +23,7 @@ class Inspector {
     // ESC: 열려있는 드롭다운 먼저 닫고, 없으면 인스펙터 닫기
     document.addEventListener('keydown', (e) => {
       if (window.prj.projectManager.currentTab !== 'processflow-panel') return;
-      
+
       if (e.key === 'Escape') {
         if (this.openMenus.size) {
           this._closeAllMenus();
@@ -61,7 +61,7 @@ class Inspector {
     window.addEventListener('scroll', this._onGlobalInvalidate, true);
     window.addEventListener('resize', this._onGlobalInvalidate, true);
 
-    
+
   }
 
 
@@ -81,7 +81,7 @@ class Inspector {
       this._ensurePanelImmediate(cardEl, proc);
     }
   }
-  
+
 
   // 렌더 후, 열려있던 카드만 패널 재부착
   rehydrateAll() {
@@ -116,7 +116,7 @@ class Inspector {
     panel.addEventListener('mousedown', (ev) => ev.stopPropagation()); // 카드 드래그로 번지지 않게
 
     // 행 구성
-    this._setPanelOptions(cardEl,panel,proc);
+    this._setPanelOptions(cardEl, panel, proc);
 
     cardEl.appendChild(panel);
     cardEl.classList.add('expanded');
@@ -144,31 +144,32 @@ class Inspector {
 
   _rowName(cardEl, proc) {
     return this._makeDropdownRow(
-      {label:'Process Name',
-      items:proc.id,
-      current:proc.name || "",
-      onChange:(val) => {
-        this.flow._commitHistory();
-        proc.name = val;
-        // 패널 내용만 재구성
-        this._rebuildPanelInPlace(cardEl, proc);
-        // 카드 라벨/메타 갱신
-        this._updateCardLabelMeta(cardEl, proc);
-        // 레일 보정
-        this._safe(this.flow._updateRailAndPastZone, this.flow);
-      },
-      headerType:'name',
-    });
+      {
+        label: 'Process Name',
+        items: proc.id,
+        current: proc.name || "",
+        onChange: (val) => {
+          this.flow._commitHistory();
+          proc.name = val;
+          // 패널 내용만 재구성
+          this._rebuildPanelInPlace(cardEl, proc);
+          // 카드 라벨/메타 갱신
+          this._updateCardLabelMeta(cardEl, proc);
+          // 레일 보정
+          this._safe(this.flow._updateRailAndPastZone, this.flow);
+        },
+        headerType: 'name',
+      });
   }
 
   _rowType(cardEl, proc) {
     let types = Object.keys(this.kindIcon || {});
     if (!types || !types.length) types = ["SUBSTR", "DEPO", "ALD", "ETCH", "CMP"];
     return this._makeDropdownRow({
-      label:"Type",
-      items:types,
-      current:proc.kind || "SUBSTR",
-      onSelect:(val) => {
+      label: "Type",
+      items: types,
+      current: proc.kind || "SUBSTR",
+      onSelect: (val) => {
         this.flow._commitHistory();
 
         proc.kind = val;
@@ -181,25 +182,25 @@ class Inspector {
         // 레일 보정
         this._safe(this.flow._updateRailAndPastZone, this.flow);
       },
-      headerType:'icon',
+      headerType: 'icon',
     });
   }
 
   _rowMaterial(proc) {
     let mats = Object.keys(this.flow.materialColor || {});
-    if (['ETCH','WETETCH'].includes(proc.kind)) mats.unshift('ALL');
+    if (['ETCH', 'WETETCH'].includes(proc.kind)) mats.unshift('ALL');
 
     return this._makeDropdownRow({
-      label:"Material",
-      items:mats,
-      current:proc.material || "",
+      label: "Material",
+      items: mats,
+      current: proc.material || "",
       onSelect: async (val) => {
         if (val === "+Add") {
           const mat = await window.prj.customModal.material("Please select material name and color:");
-          if (!mat) return;          
+          if (!mat) return;
           this.flow._commitHistory();
-          const newId = Math.max(...this.materialColor.map(b=>b.Id))+1;
-          this.flow.materialColor[mat.name] = {color:mat.color || "#cccccc", id:newId};
+          const newId = Math.max(...this.materialColor.map(b => b.Id)) + 1;
+          this.flow.materialColor[mat.name] = { color: mat.color || "#cccccc", id: newId };
           proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
           this._rebuildPanelInPlaceAll() // 물질 추가할 경우, 모든 열려있는 inspector 내용을 업데이트
@@ -207,27 +208,27 @@ class Inspector {
           proc.material = val;
         }
         this._updateAnyCardMeta(proc.id);
-        this._emitRuntimeChanged({typ:'inspector',procId:proc.id});
+        this._emitRuntimeChanged({ typ: 'inspector', procId: proc.id });
       },
-          headerType:'color',
-          showAdd: true,
+      headerType: 'color',
+      showAdd: true,
     });
   }
 
   _rowStopper(proc) {
     const mats = Object.keys(this.flow.materialColor || {});
     return this._makeDropdownRow({
-      label:"Stopper",
-      items:["-",...mats],
-      current:proc.material || "",
+      label: "Stopper",
+      items: ["-", ...mats],
+      current: proc.material || "",
       onSelect: async (val) => {
         if (val === "+Add") {
           const mat = await window.prj.customModal.material("Please select material name and color:");
-          if (!mat) return;         
-          
+          if (!mat) return;
+
           this.flow._commitHistory();
-          const newId = Math.max(...this.materialColor.map(b=>b.Id))+1;
-          this.flow.materialColor[mat.name] = {color:mat.color || "#cccccc", id:newId};
+          const newId = Math.max(...this.materialColor.map(b => b.Id)) + 1;
+          this.flow.materialColor[mat.name] = { color: mat.color || "#cccccc", id: newId };
           proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
           this._rebuildPanelInPlaceAll() // 물질 추가할 경우, 모든 열려있는 inspector 내용을 업데이트
@@ -237,8 +238,8 @@ class Inspector {
         this._updateAnyCardMeta(proc.id);
         this._emitRuntimeChanged();
       },
-        headerType:'color',
-        showAdd:true,
+      headerType: 'color',
+      showAdd: true,
     });
   }
 
@@ -246,10 +247,10 @@ class Inspector {
     // const masks = ["A", "B", "C"]; // TODO: 실제 마스크 목록 연동
     const masks = window.prj.maskmanager.maskList.map(mask => mask.id);
     return this._makeDropdownRow({
-      label:"Mask",
-      items:masks,
-      current:proc.mask || "-",
-      onSelect:(val) => {
+      label: "Mask",
+      items: masks,
+      current: proc.mask || "-",
+      onSelect: (val) => {
         this.flow._commitHistory();
         if (val === '-') {
           proc.mask = '-'
@@ -257,25 +258,25 @@ class Inspector {
           proc.mask = val;
         }
         this._updateAnyCardMeta(proc.id);
-        this._emitRuntimeChanged({typ:'inspector',procId:proc.id});
+        this._emitRuntimeChanged({ typ: 'inspector', procId: proc.id });
       },
-      headerType:'mask',
+      headerType: 'mask',
     });
   }
 
   _rowThickness(proc) {
     return this._makeSliderRow({
-      label:"Thickness (nm)",
-      min:0, 
-      max: ['ALD','WETETCH'].includes(proc.kind) ? 10 : 100, 
-      val:Number(proc.thickness || 0),
-      onChange:(v,typ) => {
+      label: "Thickness (nm)",
+      min: 0,
+      max: ['ALD', 'WETETCH'].includes(proc.kind) ? 10 : 100,
+      val: Number(proc.thickness || 0),
+      onChange: (v, typ) => {
         proc.thickness = v;
         this._updateAnyCardMeta(proc.id);
-        this._emitRuntimeChanged({typ:typ,procId:proc.id});
+        this._emitRuntimeChanged({ typ: typ, procId: proc.id });
       },
-      step:1,
-      procid:proc.id
+      step: 1,
+      procid: proc.id
     });
   }
 
@@ -283,14 +284,14 @@ class Inspector {
 
   _rowConformality(proc) {
     return this._makeSliderRow({
-      label:"Conformality",
-      min:0, max:1, val:(typeof proc.conformality === 'number' ? proc.conformality : 0),
-      onChange:(v,typ) => {        
+      label: "Conformality",
+      min: 0, max: 1, val: (typeof proc.conformality === 'number' ? proc.conformality : 0),
+      onChange: (v, typ) => {
         proc.conformality = v;
-        this._emitRuntimeChanged({typ:typ,procId:proc.id});
+        this._emitRuntimeChanged({ typ: typ, procId: proc.id });
       },
-      step:0.01,
-      procid:proc.id
+      step: 0.01,
+      procid: proc.id
     });
   }
 
@@ -316,10 +317,10 @@ class Inspector {
     }
 
     panel.innerHTML = '';
-    this._setPanelOptions(cardEl,panel,proc);
+    this._setPanelOptions(cardEl, panel, proc);
   }
 
-  _setPanelOptions(cardEl,panel,proc) {
+  _setPanelOptions(cardEl, panel, proc) {
     panel.appendChild(this._rowName(cardEl, proc));
     panel.appendChild(this._rowType(cardEl, proc));
     if (proc.kind !== 'SUBSTR' && proc.kind !== 'CMP') panel.appendChild(this._rowMaterial(proc));
@@ -347,7 +348,7 @@ class Inspector {
       const proc = this.flow.processes.find(p => p.id === procId);
       if (!proc) return;
       this._updateCardLabelMeta(card, proc);
-    }    
+    }
   }
 
   _updateCardLabelMeta(cardEl, proc) {
@@ -367,7 +368,7 @@ class Inspector {
         else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
       }
       if (proc.mask && proc.mask !== '-') {
-        const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;        
+        const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
         metaHtml += `| ${maskname} `;
       }
       if (proc.thickness && proc.thickness !== '-') {
@@ -381,7 +382,7 @@ class Inspector {
   /* ========== 드롭다운 빌더 (포털/바깥클릭/ESC/뷰포트 내 배치) ========== */
 
   _makeDropdownRow(input) {
-    const {label, items, current, onSelect, headerType='none', showAdd=false} = input;
+    const { label, items, current, onSelect, headerType = 'none', showAdd = false } = input;
     const row = document.createElement('div');
     row.className = 'insp-row';
 
@@ -401,7 +402,7 @@ class Inspector {
       btn.className = 'insp-input-box';
       btn.style.position = 'relative'; // 화살표 absolute 배치용
       btn.value = current;
-      btn.id = 'input-name-'+procId
+      btn.id = 'input-name-' + procId
       btn.addEventListener('change', (e) => {
         this.flow._commitHistory();
         const proc = this.flow.processes.find(p => p.id === procId);
@@ -414,7 +415,7 @@ class Inspector {
         this._updateCardLabelMeta(cardEl, proc);
         // 레일 보정
         this._safe(this.flow._updateRailAndPastZone, this.flow);
-        
+
       })
       box.appendChild(btn);
       return row
@@ -484,14 +485,14 @@ class Inspector {
       } else if (headerType === 'mask') {
         if (item !== '-') {
           const maskdata = window.prj.maskmanager.maskList.find(mask => mask.id === item);
-          const ic = document.createElement('img');        
+          const ic = document.createElement('img');
           ic.className = 'insp-kind-maskthumbnail';
           ic.src = maskdata.thumbnail;
           opt.appendChild(ic);
           optTx = maskdata.name;
         }
       }
-      
+
       const txt = document.createElement('span');
       txt.textContent = optTx;
       opt.appendChild(txt);
@@ -623,93 +624,94 @@ class Inspector {
     for (const m of Array.from(this.openMenus)) this._closeMenu(m);
   }
 
-/* ========== 슬라이더 빌더 (with throttle) ========== */
-_makeSliderRow(input) {
-  const { label, min, max, val, onChange, step, procid } = input;
-  const row = document.createElement('div');
-  row.className = 'insp-row';
+  /* ========== 슬라이더 빌더 (with throttle) ========== */
+  _makeSliderRow(input) {
+    const { label, min, max, val, onChange, step, procid } = input;
+    const row = document.createElement('div');
+    row.className = 'insp-row';
 
-  const lab = document.createElement('div');
-  lab.className = 'insp-label';
-  lab.textContent = label;
-  row.appendChild(lab);
+    const lab = document.createElement('div');
+    lab.className = 'insp-label';
+    lab.textContent = label;
+    row.appendChild(lab);
 
-  const wrap = document.createElement('div');
-  wrap.className = 'slider-box';
+    const wrap = document.createElement('div');
+    wrap.className = 'slider-box';
 
-  const range = document.createElement('input');
-  range.type = 'range';
-  range.min = min; range.max = max; range.step = step; range.value = val;
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = min; range.max = max; range.step = step; range.value = val;
 
-  const num = document.createElement('input');
-  num.type = 'number';
-  num.min = min; num.max = max; num.step = step; num.value = val;
+    const num = document.createElement('input');
+    num.type = 'number';
+    num.min = min; num.max = max; num.step = step; num.value = val;
 
-  // --- ✅ 쓰로틀 헬퍼 ---
-  function throttle(fn, limit = 50) {
-    let inThrottle = false;
-    return function (...args) {
-      if (!inThrottle) {
-        fn.apply(this, args);
-        inThrottle = true;
-        setTimeout(() => (inThrottle = false), limit);
-      }
+    // --- ✅ 쓰로틀 헬퍼 ---
+    function throttle(fn, limit = 50) {
+      let inThrottle = false;
+      return function (...args) {
+        if (!inThrottle) {
+          fn.apply(this, args);
+          inThrottle = true;
+          setTimeout(() => (inThrottle = false), limit);
+        }
+      };
+    }
+
+    const sync = (v, typ) => {
+      range.value = v;
+      num.value = v;
+      onChange(Number(v), typ);
     };
-  }
 
-  const sync = (v, typ) => {
-    range.value = v;
-    num.value = v;
-    onChange(Number(v), typ);
-  };
+    // --- ✅ 디바운스 대신 쓰로틀 적용 ---
+    const syncThrottled = throttle(sync, 40); // 약 25FPS
 
-  // --- ✅ 디바운스 대신 쓰로틀 적용 ---
-  const syncThrottled = throttle(sync, 40); // 약 25FPS
-
-  this.isDragging = false;
-
-  range.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-    this.isDragging = true;
-    this.inspectedProcId = procid;
-    this.flow._commitHistory();
-    sync(range.value, 'sliderdown');
-  });
-
-  range.addEventListener('mousemove', (e) => {
-    e.stopPropagation();
-    if (!this.isDragging) return;
-    this.inspectedProcId = procid;
-    // --- 🔽 디바운스 → 쓰로틀로 교체 ---
-    syncThrottled(range.value, 'slidermove');
-  });
-
-  range.addEventListener('mouseup', (e) => {
-    e.stopPropagation();
-    if (!this.isDragging) return;
     this.isDragging = false;
-    this.inspectedProcId = procid;
-    sync(range.value, 'sliderup');
-  });
 
-  num.addEventListener('change', (e) => {
-    e.stopPropagation();
-    this.flow._commitHistory();
-    this.inspectedProcId = procid;
-    sync(num.value, 'inspector');
-  });
+    range.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      this.isDragging = true;
+      this.inspectedProcId = procid;
+      this.flow._commitHistory();
+      sync(range.value, 'sliderdown');
+    });
 
-  wrap.append(range, num);
-  row.appendChild(wrap);
-  return row;
-}
+    range.addEventListener('mousemove', (e) => {
+      e.stopPropagation();
+      if (!this.isDragging) return;
+      this.inspectedProcId = procid;
+      // --- 🔽 디바운스 → 쓰로틀로 교체 ---
+      syncThrottled(range.value, 'slidermove');
+      // sync(range.value, 'slidermove');
+    });
+
+    range.addEventListener('mouseup', (e) => {
+      e.stopPropagation();
+      if (!this.isDragging) return;
+      this.isDragging = false;
+      this.inspectedProcId = procid;
+      sync(range.value, 'sliderup');
+    });
+
+    num.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.flow._commitHistory();
+      this.inspectedProcId = procid;
+      sync(num.value, 'inspector');
+    });
+
+    wrap.append(range, num);
+    row.appendChild(wrap);
+    return row;
+  }
 
 
   /* ========== 3D 런타임 이벤트 ========== */
 
   _emitRuntimeChanged(opts) {
     const detail = this._safe(this.flow._snapshot, this.flow) || null;
-    detail.opts = opts;    
+    detail.opts = opts;
     if (!detail) return;
     window.dispatchEvent(new CustomEvent('simflow:changed', { detail }));
   }
