@@ -1,194 +1,350 @@
-// ===== 3D 렌더러 =====
+// ===== 3D 렌더러 (VRAM 누수 방지, 인스턴스 용량 관리, 요청형 렌더) =====
 class GridRenderer {
-    constructor(containerId) {
-        this.wrap = document.getElementById(containerId);
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x12161c);
+  constructor(containerId) {
+    this.wrap = document.getElementById(containerId);
 
-        const w = this.wrap.clientWidth || 800;
-        const h = this.wrap.clientHeight || 600;
+    // --- Scene / Camera / Renderer ---
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x12161c);
 
-        // --- 카메라 ---
-        this.camera = new THREE.PerspectiveCamera(45, w / h, 1, 50000);
-        this.camera.up.set(0, 0, 1);
+    const w = this.wrap.clientWidth || 800;
+    const h = this.wrap.clientHeight || 600;
 
-        // --- 렌더러 ---
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(w, h);
-        this.wrap.innerHTML = '';
-        this.wrap.appendChild(this.renderer.domElement);
+    this.camera = new THREE.PerspectiveCamera(45, w / h, 1, 50000);
+    this.camera.up.set(0, 0, 1);
 
-        // --- 컨트롤러 ---
-        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setSize(w, h);
+    this.wrap.innerHTML = '';
+    this.wrap.appendChild(this.renderer.domElement);
 
-        // ============================================================
-        // 🔹 조명 세팅 (그림자 없이 깊이감 확보)
-        // ============================================================
+    // --- Controls ---
+    this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.addEventListener('change', () => this.requestRender()); // 사용자가 움직이면 한 프레임 렌더
 
-        // 약한 전역광 (기본 톤)
-        const ambient = new THREE.AmbientLight(0x404040, 0.7);
-        // (회색톤, intensity=0.4)
-        this.scene.add(ambient);
 
-        // 위-아래 자연광 (하늘빛 약하게)
-        const hemi = new THREE.HemisphereLight(0xddddff, 0x222233, 0.5);
-        hemi.position.set(0, 0, 1000);
-        this.scene.add(hemi);
 
-        // 메인 방향광 (부드러운 빛)
-        const dir1 = new THREE.DirectionalLight(0xffffff, 0.65);
-        dir1.position.set(800, -600, 1200);
-        this.scene.add(dir1);
 
-        // 보조 방향광 (살짝만)
-        const dir2 = new THREE.DirectionalLight(0xffffff, 0.15);
-        dir2.position.set(-600, 800, 800);
-        this.scene.add(dir2);
-        // ============================================================
 
-        // --- 기타 초기화 ---
-        this.xyGrid = null;
-        this.ground = null;
-        this.inst = {};
-        this.boxGeo = null;
-        this.maxInstances = 0;
+    
+    // --- Lights (가벼운 조명) ---
+    const ambient = new THREE.AmbientLight(0x404040, 0.7);
+    this.scene.add(ambient);
+    const hemi = new THREE.HemisphereLight(0xddddff, 0x222233, 0.5);
+    hemi.position.set(0, 0, 1000);
+    this.scene.add(hemi);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.65);
+    dir1.position.set(800, -600, 1200);
+    this.scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0xffffff, 0.15);
+    dir2.position.set(-600, 800, 800);
+    this.scene.add(dir2);
 
-        window.addEventListener('resize', () => this._onResize());
-        this._animate();
 
-        // 카메라 초기 위치
-        this.setDefaultCamera();
+
+
+
+
+
+
+
+    // --- Helpers & instancing state ---
+    this.ground = null;
+    this.xyGrid = null;
+    this._domainKey = '';               // 도메인(크기/분할) 변경 감지용
+    this.boxGeo = null;                 // 공유 box geometry (1회 생성)
+    this.inst = {};                     // { matId: InstancedMesh }
+    this._matColors = {};               // { matId: '#rrggbb' }
+    this._instCapacity = {};            // { matId: capacity }
+    this._headroom = 32;                // 여유 인스턴스
+
+    // --- Render scheduling ---
+    this._needsRender = true;
+
+    window.addEventListener('resize', () => this._onResize());
+    this._animate();
+    this.setDefaultCamera();
+  }
+
+  // ========== 공용 유틸 ==========
+  requestRender() { this._needsRender = true; }
+
+  _onResize() {
+    const w = this.wrap.clientWidth || 800;
+    const h = this.wrap.clientHeight || 600;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+    this.requestRender();
+  }
+
+  setDefaultCamera(grid = null) {
+    let cx = 0, cy = 0, cz = 100;
+    if (grid) {
+      cx = (grid.offsetX + grid.LXeff / 2) || 0;
+      cy = (grid.offsetY + grid.LYeff / 2) || 0;
+      cz = grid.maxHeight ? grid.maxHeight() * 0.5 : 100;
+    }
+    this.camera.position.set(400, -400, 500);
+    this.controls.target.set(cx, cy, cz);
+    this.camera.lookAt(cx, cy, cz);
+    this.requestRender();
+  }
+
+  _nextPow2(n) {
+    n = Math.max(1, Math.ceil(n));
+    return 1 << (32 - Math.clz32(n - 1));
+  }
+
+  // ========== 도메인 Helper (ground / grid) ==========
+  _setupDomainHelpers(grid) {
+    const key = `${grid.LXeff}|${grid.LYeff}|${grid.NX}|${grid.NY}`;
+    if (this._domainKey === key) return; // 변경 없음 → 재생성 불필요
+    this._domainKey = key;
+
+    // 기존 제거 + GPU 리소스 해제
+    if (this.ground) {
+      this.scene.remove(this.ground);
+      this.ground.geometry.dispose();
+      this.ground.material.dispose();
+      this.ground = null;
+    }
+    if (this.xyGrid) {
+      this.scene.remove(this.xyGrid);
+      if (Array.isArray(this.xyGrid.material)) {
+        this.xyGrid.material.forEach(m => m && m.dispose());
+      } else {
+        this.xyGrid.material.dispose();
+      }
+      this.xyGrid.geometry.dispose();
+      this.xyGrid = null;
     }
 
-    setDefaultCamera(grid = null) {
-        // grid 정보가 있으면 중심을 계산해서 target 조정
-        let cx = 0, cy = 0, cz = 100;
-        if (grid) {
-            cx = (grid.xmin + grid.xmax) / 2 || 0;
-            cy = (grid.ymin + grid.ymax) / 2 || 0;
-            cz = grid.maxHeight ? grid.maxHeight() * 0.5 : 100;
+    // 새로 생성 (가능하면 이후에는 스케일만 조정하는 구조로 유지)
+    const planeGeo = new THREE.PlaneGeometry(grid.LXeff * 1.2, grid.LYeff * 1.2);
+    this.ground = new THREE.Mesh(
+      planeGeo,
+      new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
+    );
+    this.ground.position.set(0, 0, 0);
+    this.scene.add(this.ground);
+
+    const size = Math.max(grid.LXeff, grid.LYeff) * 1.2;
+    const div = Math.max(grid.NX, grid.NY);
+    this.xyGrid = new THREE.GridHelper(size, div, 0x3a3f45, 0x2a2f35);
+    this.xyGrid.rotation.x = Math.PI / 2;
+    this.xyGrid.position.set(0, 0, 0.05);
+    this.scene.add(this.xyGrid);
+
+    this.requestRender();
+  }
+
+  // ========== InstancedMesh 관리 ==========
+  _ensureBoxGeometry() {
+    if (!this.boxGeo) this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  }
+
+  _disposeMesh(matId) {
+    const m = this.inst[matId];
+    if (!m) return;
+    this.scene.remove(m);
+    // InstancedMesh 내부 버퍼 해제
+    if (m.dispose) m.dispose();
+    if (m.material) m.material.dispose();
+    delete this.inst[matId];
+    delete this._instCapacity[matId];
+    delete this._matColors[matId];
+  }
+
+  _ensureInstanced(materialColor, countsNeeded) {
+    this._ensureBoxGeometry();
+
+    // 허용 matId 집합 (표시할 재질만)
+    const allowedIds = new Set();
+    for (const [, v] of Object.entries(materialColor || {})) {
+      allowedIds.add(v.id);
+    }
+
+    // 사라진 재질 제거
+    for (const k of Object.keys(this.inst)) {
+      const id = Number(k);
+      if (!allowedIds.has(id)) this._disposeMesh(id);
+    }
+
+    // 각 재질별 용량 보장 / 생성 또는 증설
+    for (const [, v] of Object.entries(materialColor || {})) {
+      const matId = v.id;
+      const hex = v.color;
+      const need = Math.max(0, countsNeeded[matId] || 0);
+
+      // 현재 용량
+      const curCap = this._instCapacity[matId] || 0;
+      const has = !!this.inst[matId];
+
+      // 색상만 바뀐 경우
+      if (has && hex && this._matColors[matId] !== hex) {
+        this.inst[matId].material.color.set(hex);
+        this._matColors[matId] = hex;
+      }
+
+      // 용량 충분 → 재사용
+      if (has && curCap >= need) continue;
+
+      // 새 용량 계산 (여유분 포함, 2의 거듭제곱)
+      const target = this._nextPow2(need + this._headroom);
+
+      // 기존 메시 제거 후 재생성 (geometry는 공유)
+      if (has) this._disposeMesh(matId);
+      const material = new THREE.MeshLambertMaterial({ color: new THREE.Color(hex), transparent: true, opacity: 1 });
+      const imesh = new THREE.InstancedMesh(this.boxGeo, material, Math.max(1, target));
+      this.inst[matId] = imesh;
+      this._instCapacity[matId] = target;
+      this._matColors[matId] = hex;
+      this.scene.add(imesh);
+    }
+  }
+
+  // ========== Grid → Scene 반영 ==========
+  /**
+   * materialColor: { [name]: { id: number, color: '#rrggbb' } }
+   */
+  updateFromGrid(grid, materialColor) {
+    if (!grid) return;
+
+    // 1) 도메인 helper (필요시에만 재생성)
+    this._setupDomainHelpers(grid);
+
+    // 2) 필요 인스턴스 수 1차 카운트 (재질별)
+    const countsNeeded = {};
+    const allowedIds = new Set();
+    for (const [, v] of Object.entries(materialColor || {})) allowedIds.add(v.id);
+
+    const { NX, NY, dx, dy, offsetX, offsetY } = grid;
+    const { mat, zpair, len } = grid.cols;
+    const Lmax = grid.Lmax;
+
+    for (let i = 0; i < NX; i++) {
+      for (let j = 0; j < NY; j++) {
+        const cidx = i * NY + j;
+        const layers = len[cidx];
+        if (layers === 0) continue;
+
+        const base = cidx * Lmax;
+        for (let k = 0; k < layers; k++) {
+          const mid = mat[base + k];
+          if (mid <= 2) continue; // 0=empty, 1=air, 2=cavity는 스킵
+          if (!allowedIds.has(mid)) continue;
+
+          const zBase = (base + k) * 2;
+          const z0 = grid._dequantizeZ(zpair[zBase]);
+          const z1 = grid._dequantizeZ(zpair[zBase + 1]);
+          if (z1 - z0 <= 0) continue;
+          countsNeeded[mid] = (countsNeeded[mid] || 0) + 1;
         }
-
-        this.camera.position.set(400, -400, 500);
-        this.controls.target.set(cx, cy, cz);
-        this.camera.lookAt(cx, cy, cz);
+      }
     }
 
-    _onResize() {
-        const w = this.wrap.clientWidth || 800;
-        const h = this.wrap.clientHeight || 600;
-        this.camera.aspect = w / h;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(w, h);
-    }
+    // 3) 재질별 InstancedMesh 용량 확보/증설
+    this._ensureInstanced(materialColor, countsNeeded);
 
-    _setupDomainHelpers(grid) {
-        if (this.ground) this.scene.remove(this.ground);
-        if (this.xyGrid) this.scene.remove(this.xyGrid);
+    // 4) 매트릭스 채우기
+    const dummy = new THREE.Object3D();
+    const counts = {};
+    for (const k of Object.keys(this.inst)) counts[k] = 0;
 
-        // 도메인 중심 계산
-        const cx = grid.LXeff / 2;
-        const cy = grid.LYeff / 2;
+    for (let i = 0; i < NX; i++) {
+      for (let j = 0; j < NY; j++) {
+        const cidx = i * NY + j;
+        const layers = len[cidx];
+        if (layers === 0) continue;
 
-        // 평면 및 격자 중심을 (0,0)에 정렬
-        const planeGeo = new THREE.PlaneGeometry(grid.LXeff * 1.2, grid.LYeff * 1.2);
-        this.ground = new THREE.Mesh(
-            planeGeo,
-            new THREE.MeshBasicMaterial({ color: 0x171b21, side: THREE.DoubleSide })
-        );
-        this.ground.position.set(0, 0, 0);
-        this.scene.add(this.ground);
+        const base = cidx * Lmax;
+        for (let k = 0; k < layers; k++) {
+          const mid = mat[base + k];
+          if (mid <= 2) continue;
+          if (!this.inst[mid]) continue;
 
-        const size = Math.max(grid.LXeff, grid.LYeff) * 1.2;
-        const div = Math.max(grid.NX, grid.NY);
-        this.xyGrid = new THREE.GridHelper(size, div, 0x3a3f45, 0x2a2f35);
-        this.xyGrid.rotation.x = Math.PI / 2;
-        this.xyGrid.position.set(0, 0, 0.05);
-        this.scene.add(this.xyGrid);
-    }
+          const zBase = (base + k) * 2;
+          const z0 = grid._dequantizeZ(zpair[zBase]);
+          const z1 = grid._dequantizeZ(zpair[zBase + 1]);
+          const h = z1 - z0;
+          if (h <= 0) continue;
 
-    _ensureInstanced(grid, materialColor) {
-        // 단위 큐브로 생성
-        this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
+          dummy.position.set(offsetX + i * dx, offsetY + j * dy, z0 + h / 2);
+          dummy.scale.set(dx, dy, h);
+          dummy.updateMatrix();
 
-        Object.values(this.inst).forEach(m => this.scene.remove(m));
-        this.inst = {};
-        this.maxInstances = grid.NX * grid.NY * 16;
-
-        for (const [matKey, colorStr] of Object.entries(materialColor || {})) {
-            const color = new THREE.Color(colorStr.color);
-            const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 1 });
-            const im = new THREE.InstancedMesh(this.boxGeo, mat, this.maxInstances);
-            this.inst[colorStr.id] = im;
-            this.scene.add(im);
+          const idx = counts[mid]++;
+          // 용량 체크(이론상 _ensureInstanced가 보장하므로 안전) — 그래도 가드
+          if (idx < this._instCapacity[mid]) {
+            this.inst[mid].setMatrixAt(idx, dummy.matrix);
+          }
         }
+      }
     }
 
-
-    updateFromGrid(grid, materialColor) {
-        if (!grid) return;
-
-        this._setupDomainHelpers(grid);
-        this._ensureInstanced(grid, materialColor);
-
-        const dummy = new THREE.Object3D();
-        const counts = {};
-        for (const k of Object.keys(this.inst)) counts[k] = 0;
-
-        const { NX, NY, dx, dy, offsetX, offsetY } = grid;
-        const { mat, zpair, len } = grid.cols;
-        const Lmax = grid.Lmax;
-
-        // === grid iteration ===
-        for (let i = 0; i < NX; i++) {
-            for (let j = 0; j < NY; j++) {
-                const cidx = i * NY + j;
-                const layers = len[cidx];
-                if (layers === 0) continue;
-
-                const base = cidx * Lmax;
-                for (let k = 0; k < layers; k++) {
-                    const midx = mat[base + k];
-                    if (midx <= 2) continue; // 0=empty, 1=air, 2 = air cavity
-
-                    const zBase = (base + k) * 2;
-                    const z0 = grid._dequantizeZ(zpair[zBase]);
-                    const z1 = grid._dequantizeZ(zpair[zBase + 1]);
-                    const h = z1 - z0;
-                    if (h <= 0) continue;
-
-                    // 중심 좌표 계산 (offset 보정)
-                    dummy.position.set(offsetX + i * dx, offsetY + j * dy, z0 + h / 2);
-                    dummy.scale.set(dx, dy, h);
-                    dummy.updateMatrix();
-
-                    const key = midx;
-                    if (this.inst[key]) {
-                        this.inst[key].setMatrixAt(counts[key]++, dummy.matrix);
-                    }
-                }
-            }
-        }
-
-        // === instance 업데이트 ===
-        for (const k of Object.keys(this.inst)) {
-            this.inst[k].count = counts[k] || 0;
-            this.inst[k].instanceMatrix.needsUpdate = true;
-        }
+    // 5) count/업데이트 반영
+    for (const k of Object.keys(this.inst)) {
+      const id = Number(k);
+      const mesh = this.inst[id];
+      mesh.count = Math.min(this._instCapacity[id], counts[id] || 0);
+      mesh.instanceMatrix.needsUpdate = true;
     }
 
+    this.requestRender();
+  }
 
+  // ========== 렌더 루프 (요청형) ==========
+  _animate() {
+    const loop = () => {
+      requestAnimationFrame(loop);
+      this.controls.update(); // orbit inertia 등 반영
+      if (!this._needsRender) return;
+      this._needsRender = false;
+      this.renderer.render(this.scene, this.camera);
+    };
+    loop();
+  }
 
+  // ========== 전체 해제 ==========
+  dispose() {
+    // instanced meshes
+    for (const k of Object.keys(this.inst)) this._disposeMesh(Number(k));
+    this.inst = {};
+    this._instCapacity = {};
+    this._matColors = {};
 
-    _animate() {
-        const loop = () => {
-            requestAnimationFrame(loop);
-            this.controls.update();
-            this.renderer.render(this.scene, this.camera);
-        };
-        loop();
+    // ground / grid
+    if (this.ground) {
+      this.scene.remove(this.ground);
+      this.ground.geometry.dispose();
+      this.ground.material.dispose();
+      this.ground = null;
     }
+    if (this.xyGrid) {
+      this.scene.remove(this.xyGrid);
+      if (Array.isArray(this.xyGrid.material)) {
+        this.xyGrid.material.forEach(m => m && m.dispose());
+      } else {
+        this.xyGrid.material.dispose();
+      }
+      this.xyGrid.geometry.dispose();
+      this.xyGrid = null;
+    }
+
+    // box geometry (공유)
+    if (this.boxGeo) {
+      this.boxGeo.dispose();
+      this.boxGeo = null;
+    }
+
+    // lights & scene는 보통 renderer.dispose()시 자동 정리되지만, 필요시 개별 처리 가능
+    this.renderer.dispose();
+    this.renderer.forceContextLoss && this.renderer.forceContextLoss();
+    this.renderer.domElement && this.renderer.domElement.remove();
+  }
 }
+
 
 // ===== 프로세스 실행기 =====
 class ProcessRuntime {
@@ -356,9 +512,8 @@ class ProcessRuntime {
             grid.etch_general(maskfun, mat, thk, conformality);
 
         } else if (kind === 'WETETCH') {
-            let opts = { isCache: false }
-            grid.etch_wet(maskfun, mat, thk, opts);
-
+            let opts = { isCache: useProcCache }
+            grid.etch_wet( mat, thk, opts);
         } else if (kind === 'STRIP') {
             grid.strip_connected(mat);
         } else if (kind === 'CMP') {
@@ -448,6 +603,8 @@ class ProcessRuntime {
             this.grid.colsCache[lastCacheIndex][1] += 1;
 
         } else if (opts.typ === 'sliderdown') {
+            if (!this.grid.sliderCache.changedProcIndex || this.grid.sliderCache.changedProcIndex !== changedProcIndex) this.grid.sliderCache = {changedProcIndex:changedProcIndex};
+
 
             for (const k in this.grid.colsCache) if (Number(k) > lastCacheIndex) delete this.grid.colsCache[k];
 
@@ -465,13 +622,39 @@ class ProcessRuntime {
 
             for (let nstep = lastCacheIndex; nstep < nowIndex; nstep += 1) {
                 let step = processes[nstep];
-                this._applyStep(this.grid, step, true);
+                let t0 = performance.now();
+                let useCache = changedProcIndex === nstep+1;
+                this._applyStep(this.grid, step, useCache);
             }
 
         }
 
         this.oldUpto = upto;
         this.renderer3D.updateFromGrid(this.grid, snapshot?.materialColor || {});
+
+
+
+
+
+        this.grid.identify_cavity()
+        console.log('---------------')
+
+        
+        let iy=51;
+        let ix=0;
+        for (let k=0; k<10; k++) {
+          let idx = this.grid._segIndex(iy,ix,k)
+          let idxlen = this.grid._colIndex(iy,ix)
+          let mat = this.grid.cols.mat[idx];
+          let z0=this.grid.cols.zpair[idx*2];
+          let z1=this.grid.cols.zpair[idx*2+1];
+          let len = this.grid.cols.len[idxlen];
+          if (len==k) break;
+          console.log(`mat: ${mat}, ${z0}~${z1}nm  |  len ${len}`)
+
+        }
+        
+        
 
 
     }
@@ -501,4 +684,3 @@ window.addEventListener('DOMContentLoaded', () => {
     const f = window.prj?.processFlow;
     f && window.dispatchEvent(new CustomEvent('simflow:changed', { detail: f._snapshot() }));
 });
-
