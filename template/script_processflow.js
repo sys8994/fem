@@ -49,7 +49,24 @@ class ProcessFlow {
     return JSON.parse(JSON.stringify(o))
   };
 
+  checkProcesses() {
+    const maskList = window.prj.maskmanager.maskList.map(obj=>obj.id);
 
+      
+    for (let proc of this.processes) {
+      if (proc.mask === '' || proc.mask === '-') {
+        proc.mask = '';
+      } else {
+        if (!maskList.includes(proc.mask))
+        proc.mask = 'deleted';
+      }
+    }
+    console.log(this.processes,maskList)
+
+
+
+
+  }
 
   initiate(snapshot) {
 
@@ -358,9 +375,13 @@ class ProcessFlow {
       if (proc.kind == 'CMP') metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
       else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
     }
-    if (proc.mask && proc.mask !== '-') {
-      const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
-      metaHtml += `| ${maskname} `;
+    if (proc.mask !== '-' && proc.mask !== '') {
+      if (proc.mask !== 'deleted') {
+        const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
+        metaHtml += `| ${maskname} `;
+      } else {
+        metaHtml += `| (Deleted Mask) `;
+      }
     }
     if (proc.thickness && proc.thickness !== '-') {
       metaHtml += `| ${proc.thickness} nm`;
@@ -384,64 +405,72 @@ class ProcessFlow {
 
     // 선택 & 드래그
     card.addEventListener('mousedown', (e) => {
-      this.dragStartY = e.clientY;
       const id = proc.id;
       const idx = cardIdx;
+      this.dragStartY = e.clientY;
+      let moved = false;   // 마우스가 움직였는지 여부
+      this.dragging = false;
+      this.isSelectedDragging = this.selectedIds.has(proc.id);
 
-      if (e.ctrlKey || e.metaKey) {
-        if (this.selectedIds.has(id)) this.selectedIds.delete(id);
-        else this.selectedIds.add(id);
-        this.lastFocusIndex = idx;
-        this.render();
-        return;
-      } else {
-        if (this.selectedIds.has(id)) {
-          this.selectedIds.clear();
-        } else {
-          this.selectedIds.clear();
-          this.selectedIds.add(id);
-        }
-      }
-      if (e.shiftKey && this.lastFocusIndex != null) {
-        const a = Math.min(this.lastFocusIndex, idx);
-        const b = Math.max(this.lastFocusIndex, idx);
-        this.selectedIds.clear();
-        for (let i = a; i <= b; i++) this.selectedIds.add(this.processes[i].id);
-        this.render();
-        return;
-      }
-      // this.selectedIds.clear();
-      // this.selectedIds.add(id);      
-      this.lastFocusIndex = idx;
-      this.render();
-
+      let dragTarget = this.selectedIds.has(proc.id) ? Array.from(this.selectedIds) : [proc.id]
+    
+      // --- mousemove 핸들러 ---
       const onMove = (ev) => {
-        if (Math.abs(ev.clientY - this.dragStartY) > 3) {
+        const dy = Math.abs(ev.clientY - this.dragStartY);
+        if (dy > 3) { // 3px 이상 움직이면 드래그로 간주
+          moved = true;
           if (!this.dragging) {
             this.dragging = true;
             this._ensureDropIndicator();
-            this._startDragGhost(Array.from(this.selectedIds), ev.clientX, ev.clientY);
+            this._startDragGhost(dragTarget, ev.clientX, ev.clientY);
           }
           this._moveGhost(ev.clientX, ev.clientY);
         }
       };
-      const onUp = () => {
+    
+      // --- mouseup 핸들러 ---
+      const onUp = (ev) => {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
-        this._removeGhost();
-        if (this.dragging) {
-          this.dragging = false;
-          this._hideDropIndicator();
-          if (this.dropGapIndex != null) {
-            this._commitHistory();
-            this._moveSelectedToGap(this.dropGapIndex);
+    
+        // 만약 이동이 없었다면 (= 클릭으로 간주)
+        if (!moved) {
+          // === 클릭 동작 ===
+          if (e.shiftKey && this.lastFocusIndex != null) {
+            const a = Math.min(this.lastFocusIndex, idx);
+            const b = Math.max(this.lastFocusIndex, idx);
+            this.selectedIds.clear();
+            for (let i = a; i <= b; i++) this.selectedIds.add(this.processes[i].id);
+          } else if (e.ctrlKey || e.metaKey) {
+            if (this.selectedIds.has(id)) this.selectedIds.delete(id);
+            else this.selectedIds.add(id);
+          } else {
+            this.selectedIds.clear();
+            this.selectedIds.add(id);
           }
-          this.dropGapIndex = null;
+          this.lastFocusIndex = idx;
+          this.render();
+        } 
+        // === 드래그 종료 ===
+        else {
+          this._removeGhost();
+          if (this.dragging) {
+            this.dragging = false;
+            this._hideDropIndicator();
+            if (this.dropGapIndex != null) {
+              this._commitHistory();
+              this._moveSelectedToGap(dragTarget,this.dropGapIndex);
+            }
+            this.dropGapIndex = null;
+          }
         }
       };
+    
+      // --- 이벤트 등록 ---
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     });
+    
 
     return row;
   }
@@ -466,7 +495,7 @@ class ProcessFlow {
   _hideDropIndicator() { if (this.dropIndicator) this.dropIndicator.style.display = 'none'; }
 
   /* --- ghost --- */
-  _startDragGhost(selectedIds, x, y) {
+  _startDragGhost(dragTarget, x, y) {
     this._removeGhost();
     const ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
@@ -474,7 +503,7 @@ class ProcessFlow {
     ghost.style.top = y + 'px';
     ghost.style.transform = 'scale(0.7)';         // 축소
     ghost.style.transformOrigin = 'top left';
-    selectedIds.forEach(id => {
+    dragTarget.forEach(id => {
       const card = this.listEl.querySelector(`.processflow-card[data-id="${id}"]`);
       if (card) ghost.appendChild(card.cloneNode(true));
     });
@@ -554,13 +583,14 @@ class ProcessFlow {
     this.lastFocusIndex = this.processes.findIndex(p => p.id === clones[clones.length - 1].id);
     this.render();
   }
-  _moveSelectedToGap(targetGap) {
-    if (!this.selectedIds.size) return;
-    const selected = this.processes.filter(p => this.selectedIds.has(p.id));
+  _moveSelectedToGap(dragTarget,targetGap) {
+    if (!dragTarget) return;
+    if (dragTarget.length === 0) return;
+    const selected = this.processes.filter(p => dragTarget.includes(p.id));
     if (!selected.length) return;
 
-    const remain = this.processes.filter(p => !this.selectedIds.has(p.id));
-    const removedAbove = this.processes.slice(0, targetGap).filter(p => this.selectedIds.has(p.id)).length;
+    const remain = this.processes.filter(p => !dragTarget.includes(p.id));
+    const removedAbove = this.processes.slice(0, targetGap).filter(p => dragTarget.includes(p.id)).length;
     let adjustedGap = targetGap - removedAbove;
     adjustedGap = Math.max(0, Math.min(adjustedGap, remain.length));
 
