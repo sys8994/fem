@@ -1,15 +1,3 @@
-       =========================================================== */
-    identify_cavity() {
-        const NX = this.NX, NY = this.NY, Lmax = this.Lmax;
-        const cols = this.cols;
-        const eps = 1e-9;
-        const CAVITY_ID = 2; // cavity = 2 (air=1, real mats≥3)
-
-        // ===== ① 틈(gap) 부분 cavity로 채우기 =====
-        const Hmax = this.maxHeight(); // 전체 도메인 내 최대 높이
-
-        // 새로운 버퍼 생성 (일단 기존 크기와 동일)
-        const newMat = new Uint8Array(cols.mat.length);
         const newZ = new Uint16Array(cols.zpair.length);
         const newLen = new Uint8Array(cols.len.length);
 
@@ -856,6 +844,8 @@
 
         // 캐시 저장
         this.sliderCache.aldCache.gridWithCavity.set(T, snapshotCols());
+        
+        this.identify_cavity();
     }
 
 
@@ -863,12 +853,148 @@
 
 
 
-}
 
 
 
 
-/* --- 부팅 --- */
-window.addEventListener('DOMContentLoaded', () => {
-    window.prj.ColumnGrid = ColumnGrid;
-});
+
+
+
+
+
+
+
+
+
+
+    // 등방성 웻 에치 (누적식)
+    // - matId: 식각 대상 물질 id (255 => ALL solids(>=3))
+    // - totalThk: 총 식각 두께
+    // - opts: { dt?: number, isCache?: boolean }
+    etch_wet(matId, totalThk, opts = {}) {
+        const T = Math.max(0, Number(totalThk) || 0);
+        if (T <= 0) return;
+
+        const NX = this.NX, NY = this.NY, Lmax = this.Lmax;
+        const dx = this.dx, dy = this.dy;
+        const cols = this.cols;
+        const CAVITY_ID = 2;
+        const SOLID_MIN = 3;
+        const eps = 1e-9;
+
+        // 증분 두께 (기본: min(dx,dy))
+        const baseDt = Math.max(opts.dt ?? Math.min(dx, dy), 1e-6);
+        const isCache = !!opts.isCache;
+
+        // 슬라이더 캐시 준비
+        const INV_SQRT2 = 0.7071067811865476;
+        this.sliderCache = this.sliderCache || {};
+        this.sliderCache.wetetchCache = this.sliderCache.wetetchCache || { grid: new Map(), R: 0 };
+        let R = 0;
+
+        // =============== 내부 헬퍼들 (이 함수 전용) ===============
+
+        // 정량화(이미 클래스에 구현됨) 재사용용 래퍼
+        const qZ = (z) => this._quantizeZ(z);    // real -> int step
+        const dZ = (q) => this._dequantizeZ(q);  // int step -> real
+
+        // 정규화: [q0,q1] (정수) 배열 정렬·머지
+        const normalizeQ = (arr) => {
+            if (!arr || arr.length === 0) return [];
+            arr.sort((a, b) => (a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]));
+            const out = [];
+            let s = arr[0][0], e = arr[0][1];
+            for (let i = 1; i < arr.length; i++) {
+                const a = arr[i][0], b = arr[i][1];
+                if (a <= e) { e = Math.max(e, b); }
+                else { if (e > s) out.push([s, e]); s = a; e = b; }
+            }
+            if (e > s) out.push([s, e]);
+            return out;
+        };
+
+        // 차집합 A\B (모두 정규화 가정, 정수 간격)
+        const diffIntervalsQ = (A, B) => {
+            if (!A.length) return [];
+            if (!B.length) return A.slice();
+            const out = [];
+            let j = 0;
+            for (let i = 0; i < A.length; i++) {
+                let s = A[i][0], e = A[i][1];
+                while (j < B.length && B[j][1] <= s) j++;
+                let k = j, cur = s;
+                while (k < B.length && B[k][0] < e) {
+                    const bs = B[k][0], be = B[k][1];
+                    if (bs > cur) out.push([cur, Math.min(bs, e)]);
+                    cur = Math.max(cur, be);
+                    if (cur >= e) break;
+                    k++;
+                }
+                if (cur < e) out.push([cur, e]);
+            }
+            return out;
+        };
+
+        // 교집합 A ∩ [u,v] (A 정규화 가정)
+        const intersectWithQ = (A, seg) => {
+            const u = seg[0], v = seg[1];
+            if (!A.length || v <= u) return [];
+            const out = [];
+            for (let i = 0; i < A.length; i++) {
+                const a = A[i][0], b = A[i][1];
+                if (b <= u) continue;
+                if (a >= v) break;
+                const s = Math.max(a, u), e = Math.min(b, v);
+                if (e > s) out.push([s, e]);
+            }
+            return out;
+        };
+
+        // 한 컬럼의 현재 세그먼트(정수) 정렬 추출 [q0,q1,mat]
+        const getSegmentsQ = (cidx) => {
+            const L = cols.len[cidx];
+            if (!L) return [];
+            const base = cidx * Lmax;
+            const segs = new Array(L);
+            for (let k = 0; k < L; k++) {
+                const b = base + k;
+                const q0 = cols.zpair[b * 2] | 0;
+                const q1 = cols.zpair[b * 2 + 1] | 0;
+                const m = cols.mat[b] | 0;
+                if (q1 > q0) segs[k] = [q0, q1, m];
+                else segs[k] = null; // 얇거나 역전된 값은 무시
+            }
+            // null 제거 + 정렬
+            const compact = [];
+            for (let s of segs) if (s) compact.push(s);
+            if (compact.length > 1) {
+                compact.sort((A, B) => (A[0] === B[0] ? A[1] - B[1] : A[0] - B[0]));
+            }
+            return compact;
+        };
+
+        // 전체 Hmax (정수) 계산
+        const maxHeightQ = () => {
+            let qmax = 0;
+            for (let i = 0; i < NX; i++) {
+                for (let j = 0; j < NY; j++) {
+                    const cidx = i * NY + j;
+                    const L = cols.len[cidx];
+                    if (!L) continue;
+                    const bTop = cidx * Lmax + (L - 1);
+                    const qTop = cols.zpair[bTop * 2 + 1] | 0;
+                    if (qTop > qmax) qmax = qTop;
+                }
+            }
+            return Math.max(qmax, 1);
+        };
+
+        // 점유집합 Occ: mat >=2 (cavity 포함) → [q0,q1] 정규화
+        const buildOccAllQ = () => {
+            const H = new Array(NX * NY);
+            for (let i = 0; i < NX; i++) for (let j = 0; j < NY; j++) {
+                const cidx = i * NY + j;
+                const segs = getSegmentsQ(cidx);
+                if (!segs.length) { H[cidx] = []; continue; }
+                const acc = [];
+                for (let s of segs) {
