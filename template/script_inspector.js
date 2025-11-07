@@ -367,9 +367,13 @@ class Inspector {
         if (proc.kind == 'CMP') metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} Stopper `;
         else metaHtml += `<span class="material-circle" style="background:${clr}"></span> ${proc.material} `;
       }
-      if (proc.mask && proc.mask !== '-') {
-        const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
-        metaHtml += `| ${maskname} `;
+      if (proc.mask !== '-' && proc.mask !== '') {
+        if (proc.mask !== 'deleted') {
+          const maskname = window.prj.maskmanager.maskList.find(mask => mask.id == proc.mask).name;
+          metaHtml += `| ${maskname} `;
+        } else {
+          metaHtml += `| (Deleted Mask) `;
+        }
       }
       if (proc.thickness && proc.thickness !== '-') {
         metaHtml += `| ${proc.thickness} nm`;
@@ -551,8 +555,10 @@ class Inspector {
         const icon = this.kindIcon[value] || '';
         textSpan.innerHTML = `<span class="insp-kind-icon" style="display:inline-block; margin-right:6px;">${icon}</span>${value}`;
       } else if (headerType === 'mask') {
-        if (value === '-') {
+        if (value === '-' || value === '') {
           textSpan.textContent = '(No Mask)';
+        } else if (value === 'deleted') {
+          textSpan.textContent = '(Deleted)';
         } else {
           const maskdata = window.prj.maskmanager.maskList.find(mask => mask.id === value);
           const maskthumbnail = maskdata.thumbnail;
