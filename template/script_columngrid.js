@@ -241,6 +241,7 @@ class ColumnGrid {
     initializeCache() {
         this.colsCache = {};
         this.colsCache[0] = [null, 0];
+        this.sliderCache = {};
     }
 
     saveCache(id) {
@@ -282,14 +283,6 @@ class ColumnGrid {
     _nextPowerOf2(n) {
         return 1 << (32 - Math.clz32(Math.max(1, n - 1)));
     }
-
-
-
-
-
-
-
-
 
     /* ============================
      * 기본 유틸
@@ -576,8 +569,6 @@ class ColumnGrid {
         }
     }
 
-
-
     /* ===========================================================
        등방성 식각 (conformal etch)
        - maskFn(x,y): true면 적용, 없으면 전체
@@ -728,9 +719,6 @@ class ColumnGrid {
             }
         }
     }
-
-
-
 
     /* ===========================================================
        CMP (Chemical Mechanical Planarization)
@@ -998,3 +986,15 @@ class ColumnGrid {
        - Step1: fill vertical gaps with cavity segments
        - Step2: remove exposed cavities (connected to air)
        - Step3: keep enclosed cavities
+       =========================================================== */
+    identify_cavity() {
+        const NX = this.NX, NY = this.NY, Lmax = this.Lmax;
+        const cols = this.cols;
+        const eps = 1e-9;
+        const CAVITY_ID = 2; // cavity = 2 (air=1, real mats≥3)
+
+        // ===== ① 틈(gap) 부분 cavity로 채우기 =====
+        const Hmax = this.maxHeight(); // 전체 도메인 내 최대 높이
+
+        // 새로운 버퍼 생성 (일단 기존 크기와 동일)
+        const newMat = new Uint8Array(cols.mat.length);
