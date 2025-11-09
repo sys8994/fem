@@ -492,7 +492,7 @@ class ProcessRuntime {
     let kind = (step.kind || '').toUpperCase();
 
     const mat = step.material == 'ALL' ? 255 :
-      step.material == '' ? 0 : window.prj.processFlow.materialColor[step.material].id || null;
+      (step.material == '' || step.material == '-') ? 0 : window.prj.processFlow.materialColor[step.material].id || null;
 
     const thk = Number(step.thickness || 0);
     const conformality = (typeof step.conformality === 'number') ? step.conformality : 0;

@@ -199,8 +199,9 @@ class Inspector {
           const mat = await window.prj.customModal.material("Please select material name and color:");
           if (!mat) return;
           this.flow._commitHistory();
-          const newId = Math.max(...this.materialColor.map(b => b.Id)) + 1;
+          const newId = Math.max(...Object.values(this.flow.materialColor).map(b => b.id)) + 1;
           this.flow.materialColor[mat.name] = { color: mat.color || "#cccccc", id: newId };
+          console.log('add!!', this.flow.materialColor)
           proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
           this._rebuildPanelInPlaceAll() // 물질 추가할 경우, 모든 열려있는 inspector 내용을 업데이트
@@ -227,7 +228,7 @@ class Inspector {
           if (!mat) return;
 
           this.flow._commitHistory();
-          const newId = Math.max(...this.materialColor.map(b => b.Id)) + 1;
+          const newId = Math.max(...Object.values(this.flow.materialColor).map(b => b.id)) + 1;
           this.flow.materialColor[mat.name] = { color: mat.color || "#cccccc", id: newId };
           proc.material = mat.name;
           // this._rebuildPanelInPlace(cardEl,proc);
@@ -323,7 +324,7 @@ class Inspector {
   _setPanelOptions(cardEl, panel, proc) {
     panel.appendChild(this._rowName(cardEl, proc));
     panel.appendChild(this._rowType(cardEl, proc));
-    if (proc.kind !== 'SUBSTR' && proc.kind !== 'CMP') panel.appendChild(this._rowMaterial(proc));
+    if (proc.kind !== 'SUBSTR' && proc.kind !== 'CMP' && proc.kind !== 'NEW') panel.appendChild(this._rowMaterial(proc));
     if (proc.kind === 'ETCH' || proc.kind === 'DEPO') panel.appendChild(this._rowMask(proc));
     if (proc.kind !== 'STRIP') panel.appendChild(this._rowThickness(proc));
     if (proc.kind === 'DEPO' || proc.kind === 'ETCH') panel.appendChild(this._rowConformality(proc));
