@@ -4,8 +4,10 @@
     --bg-panel: #21262d;
     --bg-panel-invalid: #5d4c3b;
     --bg-card: #36414f;
+    --bg-card-darker: rgb(69, 75, 83)4f;
     --border-color: #30363d;
     --border-color-focus: #888f96;
+    --border-color-bright: #8e99a3;
     --text-primary: rgb(207, 213, 219);
     --text-secondary: rgb(161, 166, 170);
     --accent-blue: #58a6ff;
@@ -113,7 +115,7 @@ body {
 
 .project-card {
     width: 240px;
-    height: 310px;
+    height: 325px;
     background-color: var(--bg-card, #36414f);
     border: 1px solid var(--border-color, #30363d);
     border-radius: 4px;
@@ -245,13 +247,14 @@ button {
 }
 
 .top-bar-button {
-    margin: 8px;
+    margin: 2px;
     background: none;
     border-radius: 8px;
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
     font-size: 17px;
+    width: 33px;
     /* transition: font-weight .2s, color .2s; */
 }
 
@@ -385,6 +388,7 @@ button {
     min-width: 0;
     background: linear-gradient(180deg, #10151b 0%, #0d1117 100%);
 }
+
 
 /* ===== Right Panel ===== */
 .input-panel {
@@ -643,6 +647,7 @@ label {
 
 
 .masklist-item {
+    position: relative;
     user-select: none;
     width: 250px;
     height: 250px;
@@ -656,17 +661,23 @@ label {
     margin: 10px;
     padding: 6px;
     opacity: 0.7;
+    transition: transform 0.05s ease;
 }
 
-.masklist-item.selected {
+/* .masklist-item.selected {
     opacity: 1;
     background-color: var(--bg-panel);
     outline: 2px solid var(--text-secondary);
-    /* 크기 변화 없음 */
 }
 
 .masklist-item:hover {
     border: 1px solid var(--border-color-focus);
+} */
+
+.masklist-item:hover {
+    opacity: 1;
+    transform: scale(1.02);
+    border-color: var(--accent-blue, #58a6ff);
 }
 
 
@@ -698,8 +709,44 @@ label {
     box-sizing: border-box;
     overflow-y: scroll;
     overflow-x: none;
-
 }
+
+
+.mask-upperbtn {
+    position: absolute;
+    top: 6px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: var(--text-secondary);
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    line-height: 15px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.05s ease;
+}
+
+.masklist-item:hover .mask-upperbtn {
+    opacity: 1;
+}
+
+.mask-upperbtn:hover {
+    background-color: rgba(255, 70, 70, 0.85);
+    color: var(--text-primary);
+}
+
+.mask-upperbtn-copy {
+    right: 30px;
+}
+
+.mask-upperbtn-delete {
+    right: 6px;
+}
+
+
 
 .masklist-thumbnail {
     width: 100%;
@@ -767,10 +814,10 @@ label {
     color: var(--text-secondary);
     border: none;
     border-radius: 6px;
-    font-weight: bold;
+    font-weight: normal;
     cursor: pointer;
     padding: 6px 10px;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .rightpanel-btn1:hover {
@@ -778,7 +825,7 @@ label {
     color: var(--text-primary);
 }
 
-.processflow-card-list {
+.processflow-component-list {
     position: relative;
     flex: 1;
     min-height: 0;
@@ -846,6 +893,8 @@ label {
     margin: 6px 0;
     position: relative;
 }
+
+
 
 /* ===== Vertical Rail & Dot (arrow) ===== */
 /* rail dot: rail cell의 정확한 중앙(가로/세로) */
@@ -954,7 +1003,7 @@ label {
 }
 
 /* ===== Cards ===== */
-.processflow-card {
+.processflow-component {
     grid-column: 2 / 3;
     display: grid;
     grid-template-columns: 1fr auto;
@@ -962,8 +1011,8 @@ label {
     grid-auto-rows: auto;
     /* 행 높이는 내용에 맞게 */
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 5px;
+    padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-panel);
@@ -974,37 +1023,94 @@ label {
     cursor: pointer;
 }
 
+.processflow-component-ingroup {
+    margin-left: 8px !important;
+    margin-right: 8px !important;
+    
+}
+
+
+
+
+
+
+
+
 /* 상단 좌/우 고정 배치 */
-.processflow-card .card-left {
+.processflow-component .card-left {
     grid-column: 1;
     /* row 1 자동 */
 }
 
-.processflow-card .card-right {
+.processflow-component .card-right {
     grid-column: 2;
     justify-self: end;
 }
 
-.processflow-card:hover {
+.processflow-component:hover {
     border-color: rgba(230, 237, 243, 0.4);
 }
 
-.processflow-card.selected {
+.processflow-component.selected {
     border-color: #8ac0ff;
     box-shadow: 0 0 0 2px rgba(88, 166, 255, .32) inset;
 }
 
-.processflow-card.past {
+.processflow-component.past {
     background: var(--bg-card);
 }
 
-.processflow-card.future {
+.processflow-component.future {
     opacity: .7;
     /* filter: grayscale(40%); */
 }
 
 .card-invalid {
     background: var(--bg-panel-invalid) !important;
+}
+
+
+.groupstart {
+    border: 1px solid var(--border-color-bright);
+    background: none !important;
+}
+.groupstart.selected-group {
+    border-color: #8ac0ff !important;
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, .32) inset;
+}
+.groupstart-unfolded {
+    border: 1px solid var(--border-color-bright);
+    border-bottom: none !important;          /* 하단 border 제거 */
+    border-top-left-radius: 8px; /* 좌상단만 둥글게 */
+    border-top-right-radius: 8px;/* 우상단만 둥글게 */
+    border-bottom-left-radius: 0; /* 하단은 직각 */
+    border-bottom-right-radius: 0;
+    background: none !important;
+}
+.groupstart-unfolded.selected-group {
+    border-color: #8ac0ff !important;
+}
+.groupend-unfolded {
+    border: 1px solid var(--border-color-bright);
+    border-top: none;          
+    border-bottom-left-radius: 8px; 
+    border-bottom-right-radius: 8px;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    height: 16px !important;
+    background: none !important;
+}
+.groupend-unfolded.selected-group {
+    border-color: #8ac0ff !important;
+}
+
+.procgroup-label{
+    margin-left: 8px;
+}
+.procgroup-label:hover{
+    border-bottom: 1px solid var(--border-color-bright);
+    color: var(--accent-blue) !important;
+
 }
 
 
@@ -1064,6 +1170,8 @@ label {
 
 .card-right .icon-btn {
     background: none;
+    width: 32px;
+    margin-left: 2px;
     color: var(--text-secondary);
     cursor: pointer;
     border: 1px solid var(--border-color);
@@ -1101,13 +1209,13 @@ label {
     /* 시각 폭 제한(필요 시 조절) */
 }
 
-.drag-ghost .processflow-card {
+.drag-ghost .processflow-component {
     background: rgba(88, 166, 255, .25);
     border: 1px dashed #58a6ff;
 }
 
 /* 카드 확장 표시(상단 레이아웃은 그대로) */
-/* .processflow-card.expanded {
+/* .processflow-component.expanded {
     border-color: #8ac0ff;
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.22) inset;
 } */
@@ -1125,14 +1233,16 @@ label {
 /* 드롭다운 기본 */
 .insp-row {
     display: flex;
-    align-items: center;
+    justify-content: space-between; /* 양 끝으로 배치 */
+    align-items: start;
     gap: 0px;
     padding: 0px;
     height: 35px;
 }
 
 .insp-label {
-    flex: 0 0 140px;
+    flex: 0 0 140px;  /* 고정폭 */
+    width: 140px;
     color: var(--text-secondary);
     font-size: 13px;
 }
@@ -1149,19 +1259,26 @@ label {
     /* 자체는 이벤트 안 받음 */
 }
 
-.insp-portal-layer * {
-    pointer-events: auto;
-}
-
-/* 메뉴는 받게 */
-/* 드롭다운 버튼/메뉴 */
+/* B: 래퍼 고정폭 + 오른쪽 끝으로 밀기 */
 .insp-dd-box {
     position: relative;
-    width: 100%;
+    /* width: 100%;  <-- 이거 제거 */
+    flex: 0 0 220px;                 /* 폭 고정 */
+    margin-left: auto;               /* 항상 오른쪽 끝으로 */
+    display: flex;                   /* 내부 요소 폭 제어를 위해 */
+    align-items: center;
+  }
+
+/* B 내부 실제 컨트롤: 래퍼를 꽉 채움 */
+.insp-input-box,
+.insp-dropdown-btn {
+  box-sizing: border-box;          /* 패딩/보더 포함한 폭 계산 */
+  width: 100%;                     /* 래퍼 220px을 꽉 채움 */
+  /* 필요시 높이 고정: height: 35px; line-height 조절 등 */
 }
 
+/* 기존 스타일(색, 보더 등)은 그대로 유지해도 됨 */
 .insp-input-box {
-    width: 220px;
     text-align: left;
     font-size: 13px;
     background: #20252c;
@@ -1169,12 +1286,13 @@ label {
     border: 1px solid #3a3f46;
     border-radius: 6px;
     padding: 8px 10px;
-}
-
-.insp-dropdown-btn {
+    position: relative;
+    margin: 0px !important;
+  }
+  
+  .insp-dropdown-btn {
     display: flex;
     align-items: center;
-    width: 220px;
     text-align: left;
     font-size: 13px;
     background: #20252c;
@@ -1183,7 +1301,7 @@ label {
     border-radius: 6px;
     padding: 8px 10px;
     cursor: pointer;
-}
+  }
 
 .insp-dropdown-btn-arrow {
     position: absolute;
@@ -1231,8 +1349,8 @@ label {
 }
 
 .color-dot {
-    width: 12px;
-    height: 12px;
+    width: 12px !important;
+    height: 12px !important;
     border-radius: 50%;
     flex: 0 0 12px;
 }
@@ -1246,7 +1364,7 @@ label {
 }
 
 .insp-label {
-    flex: 0 0 140px;
+    flex: 0 0 120px;
     color: var(--text-secondary);
     font-size: 13px;
 }
@@ -1494,4 +1612,30 @@ label {
 .material-color-input::-moz-color-swatch {
     border: none;
     border-radius: 0;
+}
+
+
+
+
+
+
+
+
+
+.viz-legend-row {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    overflow: hidden;
+    /* 넘치는 텍스트 숨김 */
+    text-overflow: ellipsis;
+    /* 마지막에 … 표시 */
+}
+
+.viz-legend-row.dimmed {
+    opacity: 0.4;
 }
